@@ -1,0 +1,62 @@
+# Build directories
+build/
+out/
+cmake-build-*/
+
+# Visual Studio
+.vs/
+*.sln
+*.suo
+*.user
+*.vcxproj*
+Debug/
+Release/
+x64/
+x86/
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.obj
+*.idb
+*.ipdb
+*.iobj
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Dependencies
+external/*.lib
+external/*.dll
+external/*.h
+
+# FFmpeg dev files (user must download)
+C:/ffmpeg/
+
+# vcpkg
+vcpkg_installed/
+vcpkg/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Config override (user-specific)
+gsr.conf
+
+# Replay/recording test outputs
+*.mp4
+*.mkv
+*.avi
+*.flv
+*.ts
+*.png
+*.jpg
