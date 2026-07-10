@@ -18,7 +18,15 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup vcpkg with caching
+      - name: Cache vcpkg binary packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            vcpkg/packages
+            vcpkg/downloads
+          key: vcpkg-${{ hashFiles('vcpkg.json') }}-${{ runner.os }}
+
+      - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
         with:
           runVcpkgInstall: true
