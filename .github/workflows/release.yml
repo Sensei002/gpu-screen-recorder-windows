@@ -1,0 +1,91 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup vcpkg (cached)
+        uses: microsoft/vcpkg-action@v6
+        id: vcpkg
+        with:
+          runInstall: true
+
+      - name: Configure CMake
+        run: |
+          cmake -B build `
+            -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_TOOLCHAIN_FILE="${{ steps.vcpkg.outputs.VCPKG_ROOT }}\scripts\buildsystems\vcpkg.cmake" `
+            -DGSR_BUILD_CLI=ON `
+            -DGSR_BUILD_UI=ON `
+            -DGSR_BUILD_NOTIFICATION=ON
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Install NSIS
+        run: choco install nsis --no-progress -y
+
+      - name: Build CPack packages
+        shell: cmd
+        run: |
+          cd build
+          cpack -C Release
+
+      - name: Stage packages for release
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          $nsisPkg = "gpu-screen-recorder-windows-$version-win64.exe"
+          $zipPkg  = "gpu-screen-recorder-windows-$version-win64.zip"
+          $pkgDir  = "${{ runner.temp }}\packages"
+
+          New-Item -ItemType Directory -Path $pkgDir -Force
+
+          Copy-Item "build\$nsisPkg" "$pkgDir\" -ErrorAction Stop
+          Copy-Item "build\$zipPkg"  "$pkgDir\" -ErrorAction Stop
+
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "pkg-dir=$pkgDir"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "nsis=$nsisPkg"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "zip=$zipPkg"
+        id: stage
+
+      - name: Generate release notes
+        shell: pwsh
+        run: |
+          $lastTag = git describe --tags --abbrev=0 HEAD^ 2>$null
+          if (-not $lastTag) {
+            $lastTag = git rev-list --max-parents=0 HEAD
+          }
+
+          $log = git log "$lastTag..HEAD" --pretty=format:"- %s" --no-merges
+
+          @"
+          ## gpu-screen-recorder-windows ${{ github.ref_name }}
+
+          ### Changes since $lastTag
+          $log
+          "@ | Out-File -FilePath "${{ runner.temp }}\release-notes.md" -Encoding UTF8
+
+      - name: Create GitHub Release
+        run: |
+          gh release create "${{ github.ref_name }}" `
+            --title "${{ github.ref_name }}" `
+            --notes-file "${{ runner.temp }}\release-notes.md" `
+            "${{ steps.stage.outputs.pkg-dir }}\${{ steps.stage.outputs.nsis }}" `
+            "${{ steps.stage.outputs.pkg-dir }}\${{ steps.stage.outputs.zip }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

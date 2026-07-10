@@ -1,0 +1,9 @@
+{
+  "name": "gpu-screen-recorder-windows",
+  "version": "1.0.0",
+  "description": "A ShadowPlay-like GPU screen recorder for Windows",
+  "homepage": "https://github.com/Sensei002/gpu-screen-recorder-windows",
+  "dependencies": [
+    "ffmpeg"
+  ]
+}

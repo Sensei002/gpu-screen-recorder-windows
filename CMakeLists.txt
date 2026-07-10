@@ -177,7 +177,10 @@ if(GSR_BUILD_CLI)
         target_compile_options(gpu-screen-recorder PRIVATE /W4 /utf-8)
     endif()
 
-    install(TARGETS gpu-screen-recorder RUNTIME DESTINATION bin)
+    install(TARGETS gpu-screen-recorder
+        RUNTIME DESTINATION bin
+        PDB DESTINATION bin
+    )
 endif()
 
 # ── Overlay UI ───────────────────────────────────────────────────────────────
@@ -239,7 +242,10 @@ if(GSR_BUILD_UI)
         target_compile_options(gsr-ui PRIVATE /W4 /utf-8)
     endif()
 
-    install(TARGETS gsr-ui RUNTIME DESTINATION bin)
+    install(TARGETS gsr-ui
+        RUNTIME DESTINATION bin
+        PDB DESTINATION bin
+    )
 endif()
 
 # ── Notification tool ────────────────────────────────────────────────────────
@@ -263,13 +269,39 @@ if(GSR_BUILD_NOTIFICATION)
         target_compile_options(gsr-notification PRIVATE /W4 /utf-8)
     endif()
 
-    install(TARGETS gsr-notification RUNTIME DESTINATION bin)
+    install(TARGETS gsr-notification
+        RUNTIME DESTINATION bin
+        PDB DESTINATION bin
+    )
 endif()
 
 # ── Install headers (for plugin SDK) ─────────────────────────────────────────
 install(DIRECTORY src/ DESTINATION include/gsr
     FILES_MATCHING PATTERN "*.h"
 )
+
+# ── Install license ───────────────────────────────────────────────────────────
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE" DESTINATION .)
+
+# ── CPack packaging ────────────────────────────────────────────────────────────
+set(CPACK_PACKAGE_NAME "GPU Screen Recorder")
+set(CPACK_PACKAGE_VENDOR "Sensei002")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "A ShadowPlay-like GPU screen recorder for Windows")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_PACKAGE_FILE_NAME "gpu-screen-recorder-windows-${PROJECT_VERSION}-win64")
+set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
+set(CPACK_RESOURCE_FILE_README "${CMAKE_CURRENT_SOURCE_DIR}/README.md")
+
+# NSIS installer settings
+set(CPACK_NSIS_DISPLAY_NAME "GPU Screen Recorder")
+set(CPACK_NSIS_INSTALL_ROOT "C:\\Program Files")
+set(CPACK_NSIS_MODIFY_PATH ON)
+set(CPACK_NSIS_MENU_LINKS
+    "bin/gsr-ui.exe" "GPU Screen Recorder"
+    "bin/gpu-screen-recorder.exe" "GPU Screen Recorder (CLI)"
+)
+
+include(CPack)
 
 # ── Custom target for downloading FFmpeg dev binaries on Windows ─────────────
 if(WIN32)

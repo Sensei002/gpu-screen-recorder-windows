@@ -1,0 +1,68 @@
+name: Code Quality
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  formatting:
+    name: clang-format
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install clang-format
+        run: choco install clang-format --no-progress -y
+
+      - name: Check C++ formatting
+        shell: pwsh
+        run: |
+          # Quietly check formatting (don't dump reformatted source to logs)
+          clang-format --dry-run --Werror src\**\*.cpp src\**\*.h *>$null
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::Formatting issues found. To fix, run:"
+            Write-Host "::error::  clang-format -i src/**/*.cpp src/**/*.h"
+            # Re-run with verbose to list non-compliant files
+            clang-format --dry-run --Werror --verbose src\**\*.cpp src\**\*.h 2>&1 | Select-Object -First 50
+            exit 1
+          }
+          Write-Host "::notice::All source files are properly formatted."
+
+  static-analysis:
+    name: cppcheck
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install cppcheck
+        run: choco install cppcheck --no-progress -y
+
+      - name: Run cppcheck static analysis
+        shell: pwsh
+        run: |
+          # Run cppcheck on all source files with project-relevant checks enabled
+          cppcheck `
+            --error-exitcode=1 `
+            --suppress=missingIncludeSystem `
+            --enable=warning,performance,portability,information `
+            --inconclusive `
+            --std=c++20 `
+            --language=c++ `
+            --template="{file}({line}): {severity}: {id}: {message}" `
+            -I src `
+            -I external `
+            src\**\*.cpp 2>&1
+
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "::notice::cppcheck static analysis passed with no issues."
+          }
