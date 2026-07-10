@@ -20,6 +20,8 @@ jobs:
 
       - name: Setup vcpkg with caching
         uses: lukka/run-vcpkg@v11
+        with:
+          runVcpkgInstall: true
 
       - name: Configure CMake
         run: |

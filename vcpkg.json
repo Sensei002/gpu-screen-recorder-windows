@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "A ShadowPlay-like GPU screen recorder for Windows",
   "homepage": "https://github.com/Sensei002/gpu-screen-recorder-windows",
+  "builtin-baseline": "97b19caab97ab0c8d36c93230046c8c45fcd41d0",
   "dependencies": [
     "ffmpeg"
   ]
