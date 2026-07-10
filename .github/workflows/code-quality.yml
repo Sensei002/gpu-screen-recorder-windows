@@ -20,7 +20,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install clang-format
-        run: choco install clang-format --no-progress -y
+        run: pip install clang-format --quiet
+        # clang-format is not a standalone Chocolatey package;
+        # it's available via pip or bundled with 'choco install llvm' (large download)
 
       - name: Check C++ formatting
         shell: pwsh
