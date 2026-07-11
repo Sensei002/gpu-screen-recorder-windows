@@ -61,7 +61,7 @@ jobs:
             Write-Host "Copied $($dlls.Count) FFmpeg DLLs to build/Release/"
           } else {
             Write-Host "Warning: No FFmpeg DLLs found. ffmpeg/ contents:"
-            Get-ChildItem -Path "ffmpeg" -Depth 2 -ErrorAction SilentlyContinue |
+            Get-ChildItem -Path "ffmpeg" -Recurse -Depth 2 -ErrorAction SilentlyContinue |
               Select-Object Mode, Name, Length | Format-Table -AutoSize
           }
 
