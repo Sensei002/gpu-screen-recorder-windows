@@ -217,7 +217,7 @@ bool AudioEncoder::encode_frame(const AudioFrame& frame) {
     }
 
     // Copy data (WASAPI gives interleaved S16LE)
-    int channels = get_ch_nb(input_frame);
+    int channels = get_frame_ch_nb(input_frame);
     size_t data_size = static_cast<size_t>(frame.samples) * channels * 2; // 2 bytes per sample (S16)
     if (data_size > 0 && frame.data) {
         memcpy(input_frame->data[0], frame.data, 
@@ -226,7 +226,7 @@ bool AudioEncoder::encode_frame(const AudioFrame& frame) {
 
     // Resample if needed (convert S16 to FLTP, match sample rate)
     if (!m_swr_ctx) {
-        m_swr_ctx = create_swr_ctx(m_codec_ctx, input_frame);
+        m_swr_ctx = alloc_swr_ctx(m_codec_ctx, input_frame);
         if (!m_swr_ctx || swr_init(m_swr_ctx) < 0) {
             LOG_ERROR("Failed to initialize audio resampler");
             av_frame_free(&input_frame);
@@ -246,7 +246,7 @@ bool AudioEncoder::encode_frame(const AudioFrame& frame) {
             av_freep(&m_resampled_data[0]);
         }
         int linesize = 0;
-        av_samples_alloc(&m_resampled_data, &linesize, enc_channels,
+        av_samples_alloc(reinterpret_cast<uint8_t**>(&m_resampled_data), &linesize, enc_channels,
                          out_samples, m_codec_ctx->sample_fmt, 0);
         m_resampled_samples = out_samples;
     }
