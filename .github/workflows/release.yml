@@ -23,7 +23,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ffmpeg
-          key: ffmpeg-shared-win64-gpl
+          key: ffmpeg-shared-win64-gpl-${{ hashFiles('vcpkg.json') }}
 
       - name: Download FFmpeg pre-built binaries
         if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
