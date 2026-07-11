@@ -11,6 +11,7 @@
 #include "ui/notification.h"
 
 #include <windows.h>
+#include <shellapi.h>
 #include <cstdio>
 #include <memory>
 #include <atomic>
@@ -100,8 +101,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     setup_callbacks();
 
     // Start replay mode by default
-    if (cfg.recorder().output_mode == OutputMode::Replay ||
-        cfg.recorder().output_mode == OutputMode::ReplayAndRecord) {
+    if (cfg.recorder().output_mode == OutputMode::Replay) {
         LOG_INFO("Starting replay mode by default");
         g_recorder->start_replay(cfg.recorder().output_directory);
     }
