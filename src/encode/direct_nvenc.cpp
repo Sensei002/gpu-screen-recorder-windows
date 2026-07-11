@@ -117,12 +117,8 @@ void DirectNVENC::unload_library() {
 // ─── Create encode session ─────────────────────────────────────────────────
 // Try different API versions until one succeeds. Maxwell GPUs (GTX 9xx)
 // support up to NVENC API v6–v7. Newer GPUs support up to v13+.
-
-// Helper: build an NVENC API version value from major version number
-// (e.g. 7 → API v7.x with minor=0). Format: major | (minor << 24).
-static inline uint32_t nvenc_api_ver(uint32_t major) {
-    return major; // API v{major}.0: NVENCAPI_VERSION is (major | (minor << 24))
-}
+// The apiVersion field format is: major | (minor << 24), so plain integers
+// like 7u = API v7.0, 12u = API v12.0, etc.
 
 bool DirectNVENC::create_session() {
     if (!m_funcs) return false;
