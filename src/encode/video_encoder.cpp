@@ -1,6 +1,10 @@
 #include "encode/video_encoder.h"
 #include "common/log.h"
 
+// Include d3d11.h BEFORE extern "C" FFmpeg headers to prevent conflicts
+// with Windows SDK operator== and operator!= overloads inside extern "C" linkage.
+#include <d3d11.h>
+
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavutil/avutil.h>
@@ -9,6 +13,7 @@ extern "C" {
 #include <libavutil/opt.h>
 #include <libavutil/hwcontext.h>
 #include <libavutil/hwcontext_d3d11va.h>
+#include <libswscale/swscale.h>
 }
 
 #include <cstring>

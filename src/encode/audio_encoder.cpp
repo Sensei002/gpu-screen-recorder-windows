@@ -10,6 +10,96 @@ extern "C" {
 }
 
 #include <cstring>
+#include <algorithm>
+
+// ─── FFmpeg version compatibility helpers ──────────────────────────────────
+
+// FFmpeg 7.0+ (libavcodec >= 60, libavutil >= 58) uses AVChannelLayout
+// instead of raw channel counts and uint64_t channel_layout masks.
+#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(58, 0, 0)
+#  define GSR_HAVE_NEW_CHANNEL_API 1
+#else
+#  define GSR_HAVE_NEW_CHANNEL_API 0
+#endif
+
+// Helper: set channel layout on a codec context or frame
+static void set_ch_layout(void* obj, int channels) {
+#if GSR_HAVE_NEW_CHANNEL_API
+    // AVCodecContext and AVFrame both have ch_layout of type AVChannelLayout
+    AVCodecContext* ctx = reinterpret_cast<AVCodecContext*>(obj);
+    av_channel_layout_default(&ctx->ch_layout, channels);
+#else
+    AVCodecContext* ctx = reinterpret_cast<AVCodecContext*>(obj);
+    ctx->channels = channels;
+    ctx->channel_layout = av_get_default_channel_layout(channels);
+#endif
+}
+
+// Helper: read channel count from a codec context or frame
+static int get_ch_nb(const void* obj) {
+#if GSR_HAVE_NEW_CHANNEL_API
+    const AVCodecContext* ctx = reinterpret_cast<const AVCodecContext*>(obj);
+    return ctx->ch_layout.nb_channels;
+#else
+    const AVCodecContext* ctx = reinterpret_cast<const AVCodecContext*>(obj);
+    return ctx->channels;
+#endif
+}
+
+// Helper: set frame channel layout
+static void set_frame_ch_layout(AVFrame* frame, int channels) {
+#if GSR_HAVE_NEW_CHANNEL_API
+    av_channel_layout_default(&frame->ch_layout, channels);
+#else
+    frame->channels = channels;
+    frame->channel_layout = av_get_default_channel_layout(channels);
+#endif
+}
+
+// Helper: copy channel layout from codec context to frame
+static void copy_ch_layout_to_frame(AVFrame* frame, const AVCodecContext* ctx) {
+#if GSR_HAVE_NEW_CHANNEL_API
+    av_channel_layout_copy(&frame->ch_layout, &ctx->ch_layout);
+#else
+    frame->channels = ctx->channels;
+    frame->channel_layout = ctx->channel_layout;
+#endif
+}
+
+// Helper: create SwrContext
+static SwrContext* create_swr_ctx(
+    const AVCodecContext* encoder_ctx,
+    const AVFrame* input_frame)
+{
+#if GSR_HAVE_NEW_CHANNEL_API
+    SwrContext* swr = swr_alloc();
+    if (!swr) return nullptr;
+
+    av_opt_set_chlayout(swr, "in_chlayout",  &input_frame->ch_layout,  0);
+    av_opt_set_int(swr,     "in_sample_rate", input_frame->sample_rate, 0);
+    av_opt_set_sample_fmt(swr, "in_sample_fmt",
+        static_cast<AVSampleFormat>(input_frame->format), 0);
+    av_opt_set_chlayout(swr, "out_chlayout", &encoder_ctx->ch_layout, 0);
+    av_opt_set_int(swr,     "out_sample_rate", encoder_ctx->sample_rate, 0);
+    av_opt_set_sample_fmt(swr, "out_sample_fmt",
+        encoder_ctx->sample_fmt, 0);
+
+    if (swr_init(swr) < 0) {
+        swr_free(&swr);
+        return nullptr;
+    }
+    return swr;
+#else
+    return swr_alloc_set_opts(nullptr,
+        encoder_ctx->channel_layout, encoder_ctx->sample_fmt, encoder_ctx->sample_rate,
+        input_frame->channel_layout,
+        static_cast<AVSampleFormat>(input_frame->format),
+        input_frame->sample_rate,
+        0, nullptr);
+#endif
+}
+
+// ─── Constructor / Destructor ───────────────────────────────────────────────
 
 AudioEncoder::AudioEncoder() = default;
 
@@ -48,8 +138,7 @@ bool AudioEncoder::open_encoder() {
     // Configure
     m_codec_ctx->sample_fmt = AV_SAMPLE_FMT_FLTP; // Planar float (most encoders prefer this)
     m_codec_ctx->sample_rate = m_config.sample_rate;
-    m_codec_ctx->channels = m_config.channels;
-    m_codec_ctx->channel_layout = av_get_default_channel_layout(m_config.channels);
+    set_ch_layout(m_codec_ctx, m_config.channels);
     m_codec_ctx->bit_rate = m_config.bitrate_kbps * 1000;
 
     // Set timebase
@@ -57,11 +146,10 @@ bool AudioEncoder::open_encoder() {
 
     // AAC specific options
     if (m_config.codec == AudioCodec::AAC) {
-        m_codec_ctx->profile = FF_PROFILE_AAC_LOW;
-#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(59, 0, 0)
-        // Use the new API for setting AAC options
+#if GSR_HAVE_NEW_CHANNEL_API
         av_opt_set_int(m_codec_ctx->priv_data, "aac_coder", 2, 0); // Twisted
 #else
+        m_codec_ctx->profile = FF_PROFILE_AAC_LOW;
         av_opt_set(m_codec_ctx->priv_data, "aac_coder", "twoloop", 0);
 #endif
     }
@@ -120,8 +208,7 @@ bool AudioEncoder::encode_frame(const AudioFrame& frame) {
 
     input_frame->nb_samples = frame.samples;
     input_frame->sample_rate = frame.sample_rate;
-    input_frame->channels = frame.channels;
-    input_frame->channel_layout = av_get_default_channel_layout(frame.channels);
+    set_frame_ch_layout(input_frame, frame.channels);
     input_frame->format = AV_SAMPLE_FMT_S16; // WASAPI typically gives us S16LE
 
     int ret = av_frame_get_buffer(input_frame, 0);
@@ -131,20 +218,16 @@ bool AudioEncoder::encode_frame(const AudioFrame& frame) {
     }
 
     // Copy data (WASAPI gives interleaved S16LE)
-    size_t data_size = static_cast<size_t>(frame.samples) * frame.channels * 2; // 2 bytes per sample (S16)
+    int channels = get_ch_nb(input_frame);
+    size_t data_size = static_cast<size_t>(frame.samples) * channels * 2; // 2 bytes per sample (S16)
     if (data_size > 0 && frame.data) {
         memcpy(input_frame->data[0], frame.data, 
-               std::min(data_size, static_cast<size_t>(frame.samples) * frame.channels * 2));
+               std::min(data_size, static_cast<size_t>(frame.samples) * channels * 2));
     }
 
     // Resample if needed (convert S16 to FLTP, match sample rate)
     if (!m_swr_ctx) {
-        m_swr_ctx = swr_alloc_set_opts(nullptr,
-            m_codec_ctx->channel_layout, m_codec_ctx->sample_fmt, m_codec_ctx->sample_rate,
-            input_frame->channel_layout, static_cast<AVSampleFormat>(input_frame->format), 
-            input_frame->sample_rate,
-            0, nullptr);
-
+        m_swr_ctx = create_swr_ctx(m_codec_ctx, input_frame);
         if (!m_swr_ctx || swr_init(m_swr_ctx) < 0) {
             LOG_ERROR("Failed to initialize audio resampler");
             av_frame_free(&input_frame);
@@ -158,11 +241,13 @@ bool AudioEncoder::encode_frame(const AudioFrame& frame) {
         m_codec_ctx->sample_rate, input_frame->sample_rate, AV_ROUND_UP));
 
     // Allocate resampled buffer
+    int enc_channels = get_ch_nb(m_codec_ctx);
     if (m_resampled_samples < out_samples) {
         if (m_resampled_data) {
             av_freep(&m_resampled_data[0]);
         }
-        av_samples_alloc(&m_resampled_data, nullptr, m_codec_ctx->channels,
+        int linesize = 0;
+        av_samples_alloc(&m_resampled_data, &linesize, enc_channels,
                          out_samples, m_codec_ctx->sample_fmt, 0);
         m_resampled_samples = out_samples;
     }
@@ -195,7 +280,8 @@ bool AudioEncoder::encode_frame(const AudioFrame& frame) {
         m_pts += frame_samples;
 
         // Copy resampled data
-        for (int ch = 0; ch < m_codec_ctx->channels; ch++) {
+        int copy_channels = get_ch_nb(m_codec_ctx);
+        for (int ch = 0; ch < copy_channels; ch++) {
             size_t copy_size = static_cast<size_t>(frame_samples) * 
                                av_get_bytes_per_sample(m_codec_ctx->sample_fmt);
             memcpy(m_frame->data[ch], m_resampled_data[ch] + samples_sent * 
@@ -287,8 +373,7 @@ AVFrame* AudioEncoder::allocate_frame(int samples) {
 
     frame->nb_samples = samples;
     frame->format = m_codec_ctx->sample_fmt;
-    frame->channels = m_codec_ctx->channels;
-    frame->channel_layout = m_codec_ctx->channel_layout;
+    copy_ch_layout_to_frame(frame, m_codec_ctx);
     frame->sample_rate = m_codec_ctx->sample_rate;
 
     int ret = av_frame_get_buffer(frame, 0);

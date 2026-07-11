@@ -119,7 +119,12 @@ bool Muxer::init_format(const std::string& output,
         }
 
         LOG_INFO("Audio stream: %d Hz, %d ch, codec: %s",
-                 audio_ctx->sample_rate, audio_ctx->channels,
+                 audio_ctx->sample_rate,
+#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(58, 0, 0)
+                 audio_ctx->ch_layout.nb_channels,
+#else
+                 audio_ctx->channels,
+#endif
                  avcodec_get_name(audio_ctx->codec_id));
     }
 
