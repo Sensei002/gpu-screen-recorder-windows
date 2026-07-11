@@ -55,20 +55,16 @@ jobs:
       - name: Copy FFmpeg DLLs to output
         shell: pwsh
         run: |
-          # Find FFmpeg DLLs - BtbN shared builds put them in bin/,
-          # but let's search flexibly in case the structure differs.
-          Write-Host "Looking for FFmpeg DLLs..."
-          Get-ChildItem -Path "ffmpeg" -Recurse -Filter "avcodec-*.dll" -ErrorAction SilentlyContinue |
-            Select-Object -First 1 | ForEach-Object {
-              $dllDir = $_.DirectoryName
-              Write-Host "Found FFmpeg DLLs in: $dllDir"
-              Copy-Item "$dllDir\*.dll" "build\Release\" -Force
-              Write-Host "FFmpeg DLLs copied from $dllDir to build/Release/"
-            }
-          if (-not (Get-ChildItem -Path "ffmpeg" -Recurse -Filter "avcodec-*.dll" -ErrorAction SilentlyContinue)) {
-            Write-Host "Warning: No FFmpeg DLLs found in ffmpeg/ directory. Listing contents:"
-            Get-ChildItem -Path "ffmpeg" -Depth 1 -ErrorAction SilentlyContinue |
-              Select-Object Name, Length | Format-Table -AutoSize
+          # Find FFmpeg shared libraries (avcodec*.dll, avformat*.dll, etc.)
+          $dlls = Get-ChildItem -Path "ffmpeg" -Recurse -Filter "*.dll" -ErrorAction SilentlyContinue
+          if ($dlls) {
+            # Copy all DLLs from the directory where they're found
+            Copy-Item $dlls.FullName "build\Release\" -Force
+            Write-Host "Copied $($dlls.Count) FFmpeg DLLs to build/Release/"
+          } else {
+            Write-Host "Warning: No FFmpeg DLLs found. ffmpeg/ contents:"
+            Get-ChildItem -Path "ffmpeg" -Depth 2 -ErrorAction SilentlyContinue |
+              Select-Object Mode, Name, Length | Format-Table -AutoSize
           }
 
       - name: Install NSIS
