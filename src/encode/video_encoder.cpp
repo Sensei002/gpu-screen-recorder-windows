@@ -182,13 +182,8 @@ bool VideoEncoder::open_encoder() {
         // Set codec-specific quality options
         const char* quality_param = nullptr;
         if (strstr(m_codec->name, "nvenc")) {
-            // NVENC on older GPUs (Maxwell) may not support cq (target quality).
-            // Use a high bitrate with cbr as a safe constant-quality approximation.
-            quality_param = nullptr;
-            av_opt_set(m_codec_ctx->priv_data, "rc", "cbr", 0);
-            m_codec_ctx->bit_rate = 50000000; // 50 Mbps for high quality
-            m_codec_ctx->rc_max_rate = m_codec_ctx->bit_rate;
-            m_codec_ctx->rc_buffer_size = m_codec_ctx->bit_rate / 2;
+            quality_param = "cq";
+            av_opt_set(m_codec_ctx->priv_data, "rc", "vbr", 0);
         } else if (strstr(m_codec->name, "amf")) {
             quality_param = "quality";
         } else if (strstr(m_codec->name, "qsv")) {
