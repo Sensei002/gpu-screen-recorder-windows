@@ -6,6 +6,8 @@
 #include <atomic>
 #include <cstdint>
 
+#include <libavutil/rational.h>
+
 struct AVFormatContext;
 struct AVStream;
 struct AVCodecContext;

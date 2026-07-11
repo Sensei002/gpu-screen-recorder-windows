@@ -1,3 +1,7 @@
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+
 #include "recorder/recorder.h"
 #include "capture/screen_capture.h"
 #include "capture/cursor_capture.h"
