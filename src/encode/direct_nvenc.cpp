@@ -69,7 +69,6 @@ bool DirectNVENC::load_library() {
         return false;
     }
     fl->version = NV_ENCODE_API_FUNCTION_LIST_VER;
-    fl->size = sizeof(NV_ENCODE_API_FUNCTION_LIST);
 
     NVENCSTATUS status = createInstance(fl);
     if (status != NV_ENC_SUCCESS) {
