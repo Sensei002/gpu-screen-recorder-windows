@@ -13,6 +13,10 @@
 #include <thread>
 #include <chrono>
 
+// Helper: cast the opaque m_funcs pointer to the real NVENC function list type.
+// m_funcs is stored as void* in the header to avoid including nvEncodeAPI.h there.
+#define NVF() ((NV_ENCODE_API_FUNCTION_LIST*)m_funcs)
+
 // ═════════════════════════════════════════════════════════════════════════════
 //  Implementation
 // ═════════════════════════════════════════════════════════════════════════════
@@ -56,16 +60,18 @@ bool DirectNVENC::load_library() {
     }
 
     // Allocate function list (use latest struct from header; SDK fills what it can)
-    m_funcs = (NV_ENCODE_API_FUNCTION_LIST*)calloc(1, sizeof(NV_ENCODE_API_FUNCTION_LIST));
-    if (!m_funcs) {
+    NV_ENCODE_API_FUNCTION_LIST* fl =
+        (NV_ENCODE_API_FUNCTION_LIST*)calloc(1, sizeof(NV_ENCODE_API_FUNCTION_LIST));
+    m_funcs = fl;
+    if (!fl) {
         LOG_ERROR("DirectNVENC: Failed to allocate function list");
         unload_library();
         return false;
     }
-    m_funcs->version = NV_ENCODE_API_FUNCTION_LIST_VER;
-    m_funcs->size = sizeof(NV_ENCODE_API_FUNCTION_LIST);
+    fl->version = NV_ENCODE_API_FUNCTION_LIST_VER;
+    fl->size = sizeof(NV_ENCODE_API_FUNCTION_LIST);
 
-    NVENCSTATUS status = createInstance(m_funcs);
+    NVENCSTATUS status = createInstance(fl);
     if (status != NV_ENC_SUCCESS) {
         LOG_ERROR("DirectNVENC: NvEncodeAPICreateInstance failed with status %u", status);
         free(m_funcs);
@@ -74,38 +80,38 @@ bool DirectNVENC::load_library() {
         return false;
     }
 
-    // Verify critical functions
-    if (!m_funcs->nvEncOpenEncodeSessionEx) {
+    // Verify critical functions (use the stored pointer via NVF())
+    if (!NVF()->nvEncOpenEncodeSessionEx) {
         LOG_ERROR("DirectNVENC: nvEncOpenEncodeSessionEx is null");
-        free(m_funcs); m_funcs = nullptr;
+        free(NVF()); m_funcs = nullptr;
         unload_library();
         return false;
     }
-    if (!m_funcs->nvEncInitializeEncoder) {
+    if (!NVF()->nvEncInitializeEncoder) {
         LOG_ERROR("DirectNVENC: nvEncInitializeEncoder is null");
-        free(m_funcs); m_funcs = nullptr;
+        free(NVF()); m_funcs = nullptr;
         unload_library();
         return false;
     }
-    if (!m_funcs->nvEncEncodePicture) {
+    if (!NVF()->nvEncEncodePicture) {
         LOG_ERROR("DirectNVENC: nvEncEncodePicture is null");
-        free(m_funcs); m_funcs = nullptr;
+        free(NVF()); m_funcs = nullptr;
         unload_library();
         return false;
     }
-    if (!m_funcs->nvEncDestroyEncoder) {
+    if (!NVF()->nvEncDestroyEncoder) {
         LOG_ERROR("DirectNVENC: nvEncDestroyEncoder is null");
-        free(m_funcs); m_funcs = nullptr;
+        free(NVF()); m_funcs = nullptr;
         unload_library();
         return false;
     }
 
-    LOG_INFO("DirectNVENC: Loaded nvEncodeAPI.dll (funcs ver=%u)", m_funcs->version);
+    LOG_INFO("DirectNVENC: Loaded nvEncodeAPI.dll (funcs ver=%u)", NVF()->version);
     return true;
 }
 
 void DirectNVENC::unload_library() {
-    if (m_funcs) { free(m_funcs); m_funcs = nullptr; }
+    if (m_funcs) { free(NVF()); m_funcs = nullptr; }
     if (m_module) { FreeLibrary((HMODULE)m_module); m_module = nullptr; }
 }
 
@@ -121,7 +127,7 @@ bool DirectNVENC::create_session() {
     params.device     = m_device;
     params.apiVersion = NVENCAPI_VERSION;  // Negotiate with driver
 
-    NVENCSTATUS status = m_funcs->nvEncOpenEncodeSessionEx(&params, &m_session);
+    NVENCSTATUS status = NVF()->nvEncOpenEncodeSessionEx(&params, &m_session);
     if (status != NV_ENC_SUCCESS) {
         LOG_ERROR("DirectNVENC: nvEncOpenEncodeSessionEx failed with status %u", status);
         m_session = nullptr;
@@ -201,7 +207,7 @@ bool DirectNVENC::configure_encoder() {
     initParams.maxEncodeWidth = (uint32_t)m_width;
     initParams.maxEncodeHeight = (uint32_t)m_height;
 
-    NVENCSTATUS status = m_funcs->nvEncInitializeEncoder(m_session, &initParams);
+    NVENCSTATUS status = NVF()->nvEncInitializeEncoder(m_session, &initParams);
     if (status != NV_ENC_SUCCESS) {
         LOG_ERROR("DirectNVENC: nvEncInitializeEncoder failed with status %u", status);
         return false;
@@ -227,7 +233,7 @@ bool DirectNVENC::create_buffers() {
     inBuf.height    = (uint32_t)m_height;
     inBuf.bufferFmt = NV_ENC_BUFFER_FORMAT_NV12;
 
-    NVENCSTATUS status = m_funcs->nvEncCreateInputBuffer(m_session, &inBuf);
+    NVENCSTATUS status = NVF()->nvEncCreateInputBuffer(m_session, &inBuf);
     if (status != NV_ENC_SUCCESS) {
         LOG_ERROR("DirectNVENC: nvEncCreateInputBuffer failed with status %u", status);
         return false;
@@ -240,10 +246,10 @@ bool DirectNVENC::create_buffers() {
     memset(&outBuf, 0, sizeof(outBuf));
     outBuf.version = NV_ENC_CREATE_BITSTREAM_BUFFER_VER;
 
-    status = m_funcs->nvEncCreateBitstreamBuffer(m_session, &outBuf);
+    status = NVF()->nvEncCreateBitstreamBuffer(m_session, &outBuf);
     if (status != NV_ENC_SUCCESS) {
         LOG_ERROR("DirectNVENC: nvEncCreateBitstreamBuffer failed with status %u", status);
-        m_funcs->nvEncDestroyInputBuffer(m_session, m_input_buffer);
+        NVF()->nvEncDestroyInputBuffer(m_session, m_input_buffer);
         m_input_buffer = nullptr;
         return false;
     }
@@ -270,7 +276,7 @@ bool DirectNVENC::get_sequence_params() {
     payload.ppsId          = 0;
     payload.outSPSPPSPayloadSize = &actualSize;
 
-    NVENCSTATUS status = m_funcs->nvEncGetSequenceParams(m_session, &payload);
+    NVENCSTATUS status = NVF()->nvEncGetSequenceParams(m_session, &payload);
     if (status != NV_ENC_SUCCESS || actualSize == 0) {
         LOG_WARN("DirectNVENC: Failed to get sequence params (status %u)", status);
         m_extradata.clear();
@@ -315,11 +321,11 @@ bool DirectNVENC::initialize(ID3D11Device* d3d11_device,
 
 void DirectNVENC::shutdown() {
     if (m_funcs && m_session) {
-        if (m_output_buffer) m_funcs->nvEncDestroyBitstreamBuffer(m_session, m_output_buffer);
+        if (m_output_buffer) NVF()->nvEncDestroyBitstreamBuffer(m_session, m_output_buffer);
         m_output_buffer = nullptr;
-        if (m_input_buffer) m_funcs->nvEncDestroyInputBuffer(m_session, m_input_buffer);
+        if (m_input_buffer) NVF()->nvEncDestroyInputBuffer(m_session, m_input_buffer);
         m_input_buffer = nullptr;
-        m_funcs->nvEncDestroyEncoder(m_session);
+        NVF()->nvEncDestroyEncoder(m_session);
     }
     m_session = nullptr;
     m_device = nullptr;
@@ -371,7 +377,7 @@ bool DirectNVENC::encode_frame(const uint8_t* nv12_data, int width, int height,
         m_first_frame = false;
     }
 
-    NVENCSTATUS status = m_funcs->nvEncEncodePicture(m_session, &picParams);
+    NVENCSTATUS status = NVF()->nvEncEncodePicture(m_session, &picParams);
     if (status != NV_ENC_SUCCESS) {
         // NV_ENC_ERR_NEED_MORE_INPUT means the frame was buffered for re-ordering
         // (e.g. when B-frames are used). With frameIntervalP=1 this shouldn't happen,
@@ -392,7 +398,7 @@ bool DirectNVENC::encode_frame(const uint8_t* nv12_data, int width, int height,
     lockBistream.outputBitstream = m_output_buffer;
     lockBistream.doNotWait     = 0;  // synchronous
 
-    status = m_funcs->nvEncLockBitstream(m_session, &lockBistream);
+    status = NVF()->nvEncLockBitstream(m_session, &lockBistream);
     if (status != NV_ENC_SUCCESS) {
         LOG_ERROR("DirectNVENC: nvEncLockBitstream failed with status %u", status);
         return false;
@@ -413,7 +419,7 @@ bool DirectNVENC::encode_frame(const uint8_t* nv12_data, int width, int height,
 
     m_packet_queue.push_back(std::move(packet));
 
-    m_funcs->nvEncUnlockBitstream(m_session, m_output_buffer);
+    NVF()->nvEncUnlockBitstream(m_session, m_output_buffer);
 
     m_frames_encoded++;
     m_pts_counter++;
@@ -431,7 +437,7 @@ void DirectNVENC::flush() {
     picParams.version        = NV_ENC_PIC_PARAMS_VER;
     picParams.encodePicFlags = NV_ENC_PIC_FLAG_EOS;
 
-    m_funcs->nvEncEncodePicture(m_session, &picParams);
+    NVF()->nvEncEncodePicture(m_session, &picParams);
 
     // nvEncFlushEncoderQueue is not available in NVENC API v13+
     // EOS signal above is sufficient to flush the encoder

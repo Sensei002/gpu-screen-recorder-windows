@@ -6,16 +6,13 @@
 
 struct ID3D11Device;
 
-// Forward declaration of NVENC function list struct (defined in nvEncodeAPI.h)
-struct NV_ENCODE_API_FUNCTION_LIST;
-
 // ─── DirectNVENC ───────────────────────────────────────────────────────────
 // A lightweight NVENC wrapper that loads nvEncodeAPI.dll at runtime and calls
 // the NVENC SDK C API directly, bypassing FFmpeg's h264_nvenc wrapper.
-// This is necessary because recent FFmpeg builds use NVENC SDK headers that
-// are too new for Maxwell-era GPUs, causing avcodec_open2() to return ENOSYS.
+// Needed because recent FFmpeg builds use NVENC SDK headers too new for
+// Maxwell-era GPUs, causing avcodec_open2() to return ENOSYS.
 //
-// Follows the same approach as OBS Studio's obs-nvenc plugin.
+// Follows OBS Studio's obs-nvenc plugin approach.
 
 class DirectNVENC {
 public:
@@ -59,9 +56,9 @@ private:
     bool create_buffers();
     bool get_sequence_params();
 
-    // State
+    // State (m_funcs is void* to avoid including nvEncodeAPI.h in this header)
     void*       m_module       = nullptr; // HMODULE
-    NV_ENCODE_API_FUNCTION_LIST* m_funcs = nullptr;
+    void*       m_funcs        = nullptr; // NV_ENCODE_API_FUNCTION_LIST* (cast in .cpp)
     void*       m_session      = nullptr;
     void*       m_input_buffer = nullptr;
     void*       m_output_buffer = nullptr;
