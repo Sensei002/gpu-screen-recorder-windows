@@ -58,9 +58,11 @@ bool Recorder::init_components() {
         m_screen_capture->d3d_context()
     );
 
-    // Set video dimensions from capture if not specified
-    if (m_config.video.width == 0) m_config.video.width = m_config.capture.width;
-    if (m_config.video.height == 0) m_config.video.height = m_config.capture.height;
+    // Set video dimensions from capture if not specified.
+    // The screen capture knows the actual monitor dimensions (e.g. 1920x1080)
+    // even though the config had defaults of 0. Use those real dimensions.
+    if (m_config.video.width == 0) m_config.video.width = m_screen_capture->capture_width();
+    if (m_config.video.height == 0) m_config.video.height = m_screen_capture->capture_height();
     if (m_config.video.fps == 0) m_config.video.fps = m_config.capture.fps;
 
     // Video encoder

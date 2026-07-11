@@ -41,6 +41,8 @@ public:
     bool is_capturing() const { return m_capturing.load(); }
     int capture_fps() const { return m_current_fps; }
     uint64_t captured_frames() const { return m_frame_count; }
+    int capture_width() const { return m_monitor_width; }
+    int capture_height() const { return m_monitor_height; }
 
     // Get the D3D11 device (for sharing with encoder)
     ID3D11Device* d3d_device() const { return m_device; }
