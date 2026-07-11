@@ -19,9 +19,13 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
+            vcpkg/installed
             vcpkg/packages
             vcpkg/downloads
+            build/vcpkg_installed
           key: vcpkg-${{ hashFiles('vcpkg.json') }}-${{ runner.os }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-
 
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
