@@ -54,8 +54,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     g_recorder = std::make_unique<Recorder>();
     if (!g_recorder->initialize(cfg.recorder())) {
         LOG_ERROR("Failed to initialize recorder");
-        MessageBoxA(nullptr, "Failed to initialize recorder.\n"
-                    "Make sure your GPU drivers are up to date and you have DirectX 11 support.",
+        std::string log_path = Config::default_config_dir() + "\\gsr-ui.log";
+        std::string msg = "Failed to initialize recorder.\n"
+                          "Make sure your GPU drivers are up to date and you have DirectX 11 support.\n\n"
+                          "Check the log file for more details:\n" + log_path;
+        MessageBoxA(nullptr, msg.c_str(),
                     "GPU Screen Recorder", MB_OK | MB_ICONERROR);
         return 1;
     }

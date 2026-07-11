@@ -133,7 +133,9 @@ void ScreenCapture::shutdown() {
 
 bool ScreenCapture::init_d3d11() {
     // Create D3D11 device
-    UINT flags = D3D11_CREATE_DEVICE_VIDEO_SUPPORT;
+    // NOTE: Do NOT use D3D11_CREATE_DEVICE_VIDEO_SUPPORT — it is deprecated
+    // on modern Windows and can cause E_INVALIDARG on newer builds.
+    UINT flags = 0;
 #ifdef _DEBUG
     flags |= D3D11_CREATE_DEVICE_DEBUG;
 #endif
@@ -170,18 +172,49 @@ bool ScreenCapture::init_d3d11() {
     LOG_INFO("D3D11 initialized with feature level %d.%d",
              (selected_level >> 12) & 0xf, (selected_level >> 8) & 0xf);
 
-    // Get the DXGI device for later use
+    // Get the DXGI device and adapter for desktop duplication
     IDXGIDevice* dxgi_device = nullptr;
     hr = m_device->QueryInterface(__uuidof(IDXGIDevice), reinterpret_cast<void**>(&dxgi_device));
-    DX_CHECK(hr, "Failed to get DXGI device");
+    if (FAILED(hr) || !dxgi_device) {
+        LOG_ERROR("Failed to get DXGI device from D3D11 (HRESULT: 0x%08X)", 
+                  static_cast<unsigned int>(hr));
+        LOG_ERROR("Your GPU may not support DXGI desktop duplication");
+        return false;
+    }
 
     IDXGIAdapter* dxgi_adapter = nullptr;
     hr = dxgi_device->GetAdapter(&dxgi_adapter);
-    if (SUCCEEDED(hr)) {
+    if (SUCCEEDED(hr) && dxgi_adapter) {
         hr = dxgi_adapter->QueryInterface(__uuidof(IDXGIAdapter1), reinterpret_cast<void**>(&m_adapter));
         dxgi_adapter->Release();
+        if (FAILED(hr)) {
+            LOG_WARN("Failed to get IDXGIAdapter1, adapter info may be limited");
+        }
+    } else {
+        LOG_WARN("GetAdapter failed (HRESULT: 0x%08X), enumerating adapters manually",
+                 static_cast<unsigned int>(hr));
+        // Fall back to enumerating adapters via DXGI factory
+        IDXGIFactory1* factory = nullptr;
+        if (SUCCEEDED(CreateDXGIFactory1(__uuidof(IDXGIFactory1), reinterpret_cast<void**>(&factory)))) {
+            factory->EnumAdapters1(0, &m_adapter);
+            factory->Release();
+        }
     }
     dxgi_device->Release();
+
+    if (!m_adapter) {
+        LOG_ERROR("No DXGI adapter available — desktop duplication requires a GPU with D3D11 support");
+        return false;
+    }
+
+    // Log adapter info for diagnostics
+    DXGI_ADAPTER_DESC1 adapter_desc = {};
+    if (SUCCEEDED(m_adapter->GetDesc1(&adapter_desc))) {
+        char desc_name[256] = {};
+        WideCharToMultiByte(CP_UTF8, 0, adapter_desc.Description, -1, desc_name, sizeof(desc_name), nullptr, nullptr);
+        LOG_INFO("Using adapter: %s (Dedicated VRAM: %lld MB)", desc_name, 
+                 adapter_desc.DedicatedVideoMemory / 1024 / 1024);
+    }
 
     return true;
 }
