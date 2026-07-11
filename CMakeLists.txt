@@ -78,6 +78,7 @@ set(REPLAY_SOURCES
 
 set(RECORDER_SOURCES
     src/recorder/recorder.cpp
+    src/ui/notification.cpp
 )
 
 set(COMMON_HEADERS
@@ -231,6 +232,11 @@ if(GSR_BUILD_UI)
         src/ui/overlay.cpp
         src/ui/ui_renderer.cpp
         src/ui/hotkeys.cpp
+        src/ui/notification.cpp
+    )
+
+    set_target_properties(gsr-ui PROPERTIES
+        WIN32_EXECUTABLE TRUE
     )
 
     target_include_directories(gsr-ui PRIVATE

@@ -1,5 +1,10 @@
 #include "capture/audio_capture.h"
 #include "common/log.h"
+
+// Define INITGUID before including Windows SDK property key headers
+// so that PKEY_AudioEngine_DeviceFormat and other property keys
+// have their GUID definitions linked properly.
+#define INITGUID
 #include <mmdeviceapi.h>
 #include <audioclient.h>
 #include <audiopolicy.h>
