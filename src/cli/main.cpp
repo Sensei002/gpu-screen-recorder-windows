@@ -2,10 +2,17 @@
 // A ShadowPlay-like screen recorder for Windows with minimal performance impact.
 // Usage: gpu-screen-recorder [options]
 
+// Define NOMINMAX before any Windows headers to prevent min/max macros
+// from interfering with std::chrono::high_resolution_clock::now()
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+
 #include "common/log.h"
 #include "common/config.h"
 #include "common/types.h"
 #include "recorder/recorder.h"
+#include "encode/video_encoder.h"
 
 #include <cstdio>
 #include <cstring>

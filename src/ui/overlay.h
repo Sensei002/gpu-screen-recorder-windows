@@ -45,10 +45,11 @@ public:
     void run();
     void stop();
 
-    // Getters for ImGui
+    // DirectX getters
     ID3D11Device* d3d_device() const { return m_d3d_device; }
     ID3D11DeviceContext* d3d_context() const { return m_d3d_context; }
     IDXGISwapChain* swap_chain() const { return m_swap_chain; }
+    ID3D11RenderTargetView* render_target() const { return m_render_target; }
     HWND hwnd() const { return m_hwnd; }
 
     // Overlay state

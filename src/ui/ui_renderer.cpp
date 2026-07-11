@@ -1,3 +1,7 @@
+// Include d3d11.h before overlay.h to ensure D3D11 COM types are defined
+// overlay.h only forward-declares them, but we need the full definitions.
+#include <d3d11.h>
+
 #include "ui/ui_renderer.h"
 #include "ui/overlay.h"
 #include "common/config.h"
@@ -359,7 +363,7 @@ void UIRenderer::render_output_tab() {
     ImGui::Text("Output Format:");
     const char* formats[] = {"MP4", "MKV", "TS", "FLV"};
     static int format_idx = 0;
-    ImGui::Combo("##format", &format_idx, formats, IM_ARRAYSY(formats));
+    ImGui::Combo("##format", &format_idx, formats, IM_ARRAYSIZE(formats));
 
     // Replay settings
     ImGui::Spacing();
@@ -372,7 +376,7 @@ void UIRenderer::render_output_tab() {
 
     const char* storage_types[] = {"RAM (faster)", "Disk (more capacity)"};
     int storage_idx = (recorder.replay_storage == ReplayStorage::Disk) ? 1 : 0;
-    ImGui::Combo("Storage", &storage_idx, storage_types, IM_ARRAYSY(storage_types));
+    ImGui::Combo("Storage", &storage_idx, storage_types, IM_ARRAYSIZE(storage_types));
     recorder.replay_storage = (storage_idx == 1) ? ReplayStorage::Disk : ReplayStorage::RAM;
 
     // Save config
@@ -395,7 +399,7 @@ void UIRenderer::render_video_tab() {
     // Codec selection
     const char* codecs[] = {"H.264 (NVENC/AMF/QSV)", "HEVC/H.265", "AV1", "VP8", "VP9"};
     int codec_idx = static_cast<int>(video.codec);
-    ImGui::Combo("Codec", &codec_idx, codecs, IM_ARRAYSY(codecs));
+    ImGui::Combo("Codec", &codec_idx, codecs, IM_ARRAYSIZE(codecs));
     video.codec = static_cast<VideoCodec>(codec_idx);
 
     // Quality
@@ -438,13 +442,13 @@ void UIRenderer::render_audio_tab() {
     // Audio source
     const char* sources[] = {"System Audio (what you hear)", "Microphone", "Both"};
     int source_idx = static_cast<int>(audio.source_type);
-    ImGui::Combo("Source", &source_idx, sources, IM_ARRAYSY(sources));
+    ImGui::Combo("Source", &source_idx, sources, IM_ARRAYSIZE(sources));
     audio.source_type = static_cast<AudioSourceType>(source_idx);
 
     // Codec
     const char* codecs[] = {"AAC", "Opus"};
     int codec_idx = (audio.codec == AudioCodec::Opus) ? 1 : 0;
-    ImGui::Combo("Codec", &codec_idx, codecs, IM_ARRAYSY(codecs));
+    ImGui::Combo("Codec", &codec_idx, codecs, IM_ARRAYSIZE(codecs));
     audio.codec = (codec_idx == 1) ? AudioCodec::Opus : AudioCodec::AAC;
 
     // Bitrate
@@ -455,7 +459,7 @@ void UIRenderer::render_audio_tab() {
     // Sample rate
     const char* rates[] = {"44100 Hz", "48000 Hz"};
     int rate_idx = (audio.sample_rate == 48000) ? 1 : 0;
-    ImGui::Combo("Sample Rate", &rate_idx, rates, IM_ARRAYSY(rates));
+    ImGui::Combo("Sample Rate", &rate_idx, rates, IM_ARRAYSIZE(rates));
     audio.sample_rate = (rate_idx == 1) ? 48000 : 44100;
 }
 

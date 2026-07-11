@@ -5,6 +5,7 @@
 #include <dxgi1_2.h>
 #include <d3dcompiler.h>
 #include <windowsx.h>
+#include <imgui_impl_win32.h>
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
@@ -84,7 +85,7 @@ bool Overlay::create_window(HINSTANCE instance) {
     m_wc.lpfnWndProc = window_proc;
     m_wc.hInstance = instance;
     m_wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    m_wc.lpszClassName = L"GSROverlayClass";
+    m_wc.lpszClassName = "GSROverlayClass";
 
     if (!RegisterClassEx(&m_wc)) {
         LOG_ERROR("Failed to register overlay window class");
@@ -94,8 +95,8 @@ bool Overlay::create_window(HINSTANCE instance) {
     // Create a layered, transparent window
     m_hwnd = CreateWindowEx(
         WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_LAYERED | WS_EX_TOOLWINDOW,
-        L"GSROverlayClass",
-        L"GPU Screen Recorder",
+        "GSROverlayClass",
+        "GPU Screen Recorder",
         WS_POPUP,
         m_pos_x, m_pos_y, m_width, m_height,
         nullptr, nullptr, instance, this
@@ -297,7 +298,7 @@ LRESULT CALLBACK Overlay::window_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
     }
 
     // Pass events to ImGui
-    extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM);
+    extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM);
     if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wParam, lParam))
         return true;
 
