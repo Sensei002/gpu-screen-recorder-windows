@@ -115,26 +115,61 @@ void DirectNVENC::unload_library() {
 }
 
 // ─── Create encode session ─────────────────────────────────────────────────
+// Try different API versions until one succeeds. Maxwell GPUs (GTX 9xx)
+// support up to NVENC API v6–v7. Newer GPUs support up to v13+.
+
+// Helper: build an NVENC API version value from major version number
+// (e.g. 7 → API v7.x with minor=0). Format: major | (minor << 24).
+static inline uint32_t nvenc_api_ver(uint32_t major) {
+    return major; // API v{major}.0: NVENCAPI_VERSION is (major | (minor << 24))
+}
 
 bool DirectNVENC::create_session() {
     if (!m_funcs) return false;
 
-    NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS params{};
-    memset(&params, 0, sizeof(params));
-    params.version    = NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS_VER;
-    params.deviceType = NV_ENC_DEVICE_TYPE_DIRECTX;
-    params.device     = m_device;
-    params.apiVersion = NVENCAPI_VERSION;  // Negotiate with driver
+    // API versions to try, newest first. Maxwell supports ~v6–v7.
+    // NVENCAPI_VERSION = v13.1 (from our header).
+    const uint32_t api_versions[] = {
+        NVENCAPI_VERSION,  // v13.1 — latest (from ffnvcodec header)
+        12u,               // v12.x
+        11u,               // v11.x
+        10u,               // v10.x
+        9u,                // v9.x
+        8u,                // v8.x
+        7u,                // v7.x — Maxwell max
+        6u                 // v6.x — also should work on Maxwell
+    };
 
-    NVENCSTATUS status = NVF()->nvEncOpenEncodeSessionEx(&params, &m_session);
-    if (status != NV_ENC_SUCCESS) {
-        LOG_ERROR("DirectNVENC: nvEncOpenEncodeSessionEx failed with status %u", status);
-        m_session = nullptr;
-        return false;
+    NVENCSTATUS last_status = NV_ENC_ERR_INVALID_VERSION;
+
+    for (uint32_t ver : api_versions) {
+        NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS params{};
+        memset(&params, 0, sizeof(params));
+        params.version    = NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS_VER;
+        params.deviceType = NV_ENC_DEVICE_TYPE_DIRECTX;
+        params.device     = m_device;
+        params.apiVersion = ver;
+
+        NVENCSTATUS status = NVF()->nvEncOpenEncodeSessionEx(&params, &m_session);
+        if (status == NV_ENC_SUCCESS) {
+            LOG_INFO("DirectNVENC: Session opened with API v%u", ver);
+            return true;
+        }
+
+        last_status = status;
+        if (status != NV_ENC_ERR_INVALID_VERSION) {
+            // Non-version error — no point trying older versions
+            LOG_ERROR("DirectNVENC: nvEncOpenEncodeSessionEx failed with status %u (ver=%u)",
+                      status, ver);
+            m_session = nullptr;
+            return false;
+        }
     }
 
-    LOG_INFO("DirectNVENC: Session opened");
-    return true;
+    LOG_ERROR("DirectNVENC: nvEncOpenEncodeSessionEx failed — no compatible API version found (last status %u)",
+              last_status);
+    m_session = nullptr;
+    return false;
 }
 
 // ─── Configure encoder ─────────────────────────────────────────────────────
