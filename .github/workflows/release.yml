@@ -18,23 +18,32 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Cache FFmpeg binaries
+        id: cache-ffmpeg
+        uses: actions/cache@v4
+        with:
+          path: ffmpeg
+          key: ffmpeg-shared-win64-gpl
+
       - name: Download FFmpeg pre-built binaries
+        if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl-shared.zip"
           Write-Host "Downloading FFmpeg from $url ..."
           Invoke-WebRequest -Uri $url -OutFile "ffmpeg.zip"
-          Expand-Archive -Path "ffmpeg.zip" -DestinationPath "." -Force
-          $ffmpegDir = Get-ChildItem -Directory -Filter "ffmpeg-master-latest-win64-gpl*" | Select-Object -First 1
-          $fullPath = Resolve-Path $ffmpegDir.FullName
-          Write-Host "FFmpeg extracted to: $fullPath"
-          echo "FFMPEG_DIR=$fullPath" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Expand-Archive -Path "ffmpeg.zip" -DestinationPath "ffmpeg_tmp" -Force
+          $extracted = Get-ChildItem -Directory "ffmpeg_tmp" | Select-Object -First 1
+          Move-Item "$($extracted.FullName)\*" "ffmpeg\" -Force
+          Remove-Item "ffmpeg_tmp" -Recurse -Force
+          Remove-Item "ffmpeg.zip" -Force
+          Write-Host "FFmpeg ready at: $(Resolve-Path ffmpeg)"
 
       - name: Configure CMake
         run: |
           cmake -B build `
             -A x64 `
-            -DFFMPEG_DIR="%FFMPEG_DIR%" `
+            -DFFMPEG_DIR="%CD%\ffmpeg" `
             -DGSR_BUILD_CLI=ON `
             -DGSR_BUILD_UI=ON `
             -DGSR_BUILD_NOTIFICATION=ON
@@ -42,6 +51,12 @@ jobs:
 
       - name: Build
         run: cmake --build build --config Release --parallel
+
+      - name: Copy FFmpeg DLLs to output
+        shell: pwsh
+        run: |
+          Copy-Item "ffmpeg\bin\*.dll" "build\Release\" -Force
+          Write-Host "FFmpeg DLLs copied to build/Release/"
 
       - name: Install NSIS
         run: choco install nsis --no-progress -y

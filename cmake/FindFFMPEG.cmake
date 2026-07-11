@@ -40,7 +40,6 @@ foreach(_component ${_FFMPEG_KNOWN_COMPONENTS})
             ${_component}/${_component}.h
         PATHS
             ${FFMPEG_DIR}
-            ${FFMPEG_DIR}/../ffmpeg-*
         PATH_SUFFIXES
             include
         NO_DEFAULT_PATH
@@ -53,7 +52,6 @@ foreach(_component ${_FFMPEG_KNOWN_COMPONENTS})
             lib${_component}
         PATHS
             ${FFMPEG_DIR}
-            ${FFMPEG_DIR}/../ffmpeg-*
         PATH_SUFFIXES
             lib
             lib/x64
@@ -80,8 +78,8 @@ set(FFMPEG_LIBRARIES ${_FFMPEG_LIBRARIES})
 
 if(FFMPEG_INCLUDE_DIRS AND FFMPEG_LIBRARIES)
     # Pick the first library's directory as the library dir
-    get_filename_component(FFMPEG_LIBRARY_DIRS "${FFMPEG_LIBRARIES}" DIRECTORY)
-    list(GET FFMPEG_LIBRARY_DIRS 0 FFMPEG_LIBRARY_DIRS)
+    list(GET FFMPEG_LIBRARIES 0 _FFMPEG_FIRST_LIB)
+    get_filename_component(FFMPEG_LIBRARY_DIRS "${_FFMPEG_FIRST_LIB}" DIRECTORY)
 endif()
 
 # ── Check required components ───────────────────────────────────────────────
@@ -117,10 +115,7 @@ else()
 endif()
 
 # ── Cleanup internal variables ──────────────────────────────────────────────
-mark_as_advanced(
-    FFMPEG_DIR
-    ${_FFMPEG_KNOWN_COMPONENTS}
-)
+mark_as_advanced(FFMPEG_DIR)
 foreach(_component ${_FFMPEG_KNOWN_COMPONENTS})
     mark_as_advanced(FFMPEG_${_component}_INCLUDE_DIR FFMPEG_${_component}_LIBRARY)
 endforeach()
