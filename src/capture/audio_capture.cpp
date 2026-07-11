@@ -5,6 +5,7 @@
 #include <audiopolicy.h>
 #include <functiondiscoverykeys_devpkey.h>
 #include <windows.h>
+#include <avrt.h>
 #include <chrono>
 #include <string>
 

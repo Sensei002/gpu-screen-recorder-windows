@@ -421,7 +421,7 @@ bool ScreenCapture::acquire_frame(VideoFrame& frame) {
 
     // Map for CPU read and copy frame data to persistent buffer
     D3D11_MAPPED_SUBRESOURCE mapped;
-    HRESULT hr = m_context->Map(m_cpu_access_texture, 0, D3D11_MAP_READ, 0, &mapped);
+    hr = m_context->Map(m_cpu_access_texture, 0, D3D11_MAP_READ, 0, &mapped);
     if (FAILED(hr)) {
         return false;
     }
