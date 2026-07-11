@@ -182,9 +182,10 @@ bool VideoEncoder::open_encoder() {
         // Set codec-specific quality options
         const char* quality_param = nullptr;
         if (strstr(m_codec->name, "nvenc")) {
-            quality_param = "cq";
-            // NVENC uses its own rate control — set rc to vbr for CQ mode
-            av_opt_set(m_codec_ctx->priv_data, "rc", "vbr", 0);
+            // NVENC on Maxwell (GTX 900-series) does NOT support "cq" target quality mode.
+            // Use "constqp" with "qp" instead — this works on all NVENC generations.
+            quality_param = "qp";
+            av_opt_set(m_codec_ctx->priv_data, "rc", "constqp", 0);
         } else if (strstr(m_codec->name, "amf")) {
             quality_param = "quality";
         } else if (strstr(m_codec->name, "qsv")) {
@@ -218,14 +219,16 @@ bool VideoEncoder::open_encoder() {
         // Use "hq" preset for broadest compatibility (Maxwell through Ada).
         // The "p6"/"p7" presets are Turing+ only and will fail on GTX 900-series (Maxwell).
         av_opt_set(m_codec_ctx->priv_data, "preset", "hq", 0);
-        av_opt_set(m_codec_ctx->priv_data, "tune", "hq", 0);
+        // Set profile explicitly — "main" is universally supported on all NVENC hardware.
+        av_opt_set(m_codec_ctx->priv_data, "profile", "main", 0);
         // rc is set above in the quality section if constant_quality is enabled,
         // otherwise set it now for bitrate mode
         if (!m_config.constant_quality) {
             av_opt_set(m_codec_ctx->priv_data, "rc", "cbr", 0);
         }
-        av_opt_set_int(m_codec_ctx->priv_data, "delay", 0, 0); // Low latency
         av_opt_set_int(m_codec_ctx->priv_data, "b_ref_mode", 0, 0); // No B-frames
+        // NOTE: "delay" is intentionally NOT set. On Maxwell, some NVENC options
+        // (like delay=0) can cause avcodec_open2() to reject the config.
 
         // HDR support
         if (m_config.enable_hdr) {
