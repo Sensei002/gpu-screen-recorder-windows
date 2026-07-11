@@ -53,45 +53,7 @@ bool VideoEncoder::is_hardware_encoder_available(const std::string& name) {
 bool VideoEncoder::initialize(const VideoEncoderConfig& config) {
     m_config = config;
     select_best_encoder();
-    if (open_encoder()) return true;
-
-    // If a user-specified encoder failed, don't try fallbacks
-    if (!m_config.encoder_name.empty()) {
-        return false;
-    }
-
-    // Hardware encoder failed — try the software encoder as fallback
-    LOG_WARN("Hardware encoder '%s' failed, trying software encoder", 
-             m_codec ? m_codec->name : "(none)");
-    cleanup_encoder_state();
-
-    const char* sw_encoder = nullptr;
-    switch (m_config.codec) {
-        case VideoCodec::H264: sw_encoder = "libx264"; break;
-        case VideoCodec::HEVC: sw_encoder = "libx265"; break;
-        case VideoCodec::AV1:  sw_encoder = "libaom-av1"; break;
-        case VideoCodec::VP8:  sw_encoder = "libvpx"; break;
-        case VideoCodec::VP9:  sw_encoder = "libvpx-vp9"; break;
-    }
-
-    if (sw_encoder) {
-        m_codec = avcodec_find_encoder_by_name(sw_encoder);
-        if (m_codec) {
-            LOG_INFO("Fallback software encoder: %s", sw_encoder);
-            return open_encoder();
-        }
-        LOG_WARN("Software encoder '%s' not found", sw_encoder);
-    }
-
-    return false;
-}
-
-void VideoEncoder::cleanup_encoder_state() {
-    if (m_codec_ctx) {
-        avcodec_free_context(&m_codec_ctx);
-    }
-    m_codec = nullptr;
-    m_initialized = false;
+    return open_encoder();
 }
 
 void VideoEncoder::select_best_encoder() {
