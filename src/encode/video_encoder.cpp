@@ -373,7 +373,7 @@ bool VideoEncoder::try_open_with_direct_nvenc() {
     m_codec_ctx->gop_size = m_config.fps * 2;
     m_codec_ctx->max_b_frames = 0;
     m_codec_ctx->bit_rate = m_config.bitrate_kbps * 1000;
-    m_codec_ctx->profile = FF_PROFILE_H264_MAIN;
+    m_codec_ctx->profile = 77; // FF_PROFILE_H264_MAIN
     m_codec_ctx->level = 41;  // 4.1, supports 1080p@60
     
     // Copy extradata (SPS/PPS) from DirectNVENC to the FFmpeg context
