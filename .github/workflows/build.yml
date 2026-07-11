@@ -53,8 +53,21 @@ jobs:
       - name: Copy FFmpeg DLLs to output
         shell: pwsh
         run: |
-          Copy-Item "ffmpeg\bin\*.dll" "build\Release\" -Force
-          Write-Host "FFmpeg DLLs copied to build/Release/"
+          # Find FFmpeg DLLs - BtbN shared builds put them in bin/,
+          # but let's search flexibly in case the structure differs.
+          Write-Host "Looking for FFmpeg DLLs..."
+          Get-ChildItem -Path "ffmpeg" -Recurse -Filter "avcodec-*.dll" -ErrorAction SilentlyContinue |
+            Select-Object -First 1 | ForEach-Object {
+              $dllDir = $_.DirectoryName
+              Write-Host "Found FFmpeg DLLs in: $dllDir"
+              Copy-Item "$dllDir\*.dll" "build\Release\" -Force
+              Write-Host "FFmpeg DLLs copied from $dllDir to build/Release/"
+            }
+          if (-not (Get-ChildItem -Path "ffmpeg" -Recurse -Filter "avcodec-*.dll" -ErrorAction SilentlyContinue)) {
+            Write-Host "Warning: No FFmpeg DLLs found in ffmpeg/ directory. Listing contents:"
+            Get-ChildItem -Path "ffmpeg" -Depth 1 -ErrorAction SilentlyContinue |
+              Select-Object Name, Length | Format-Table -AutoSize
+          }
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
