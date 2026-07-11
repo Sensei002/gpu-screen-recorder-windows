@@ -182,10 +182,8 @@ bool VideoEncoder::open_encoder() {
         // Set codec-specific quality options
         const char* quality_param = nullptr;
         if (strstr(m_codec->name, "nvenc")) {
-            // NVENC on Maxwell (GTX 900-series) does NOT support "cq" target quality mode.
-            // Use "constqp" with "qp" instead — this works on all NVENC generations.
-            quality_param = "qp";
-            av_opt_set(m_codec_ctx->priv_data, "rc", "constqp", 0);
+            quality_param = "cq";
+            av_opt_set(m_codec_ctx->priv_data, "rc", "vbr", 0);
         } else if (strstr(m_codec->name, "amf")) {
             quality_param = "quality";
         } else if (strstr(m_codec->name, "qsv")) {
