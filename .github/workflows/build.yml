@@ -38,14 +38,14 @@ jobs:
           Write-Host "FFmpeg ready at: $(Resolve-Path ffmpeg)"
 
       - name: Configure CMake
+        shell: pwsh
         run: |
           cmake -B build `
             -A x64 `
-            -DFFMPEG_DIR="%CD%\ffmpeg" `
+            -DFFMPEG_DIR="$($pwd.Path)\ffmpeg" `
             -DGSR_BUILD_CLI=ON `
             -DGSR_BUILD_UI=ON `
             -DGSR_BUILD_NOTIFICATION=ON
-        shell: cmd
 
       - name: Build
         run: cmake --build build --config Release --parallel
