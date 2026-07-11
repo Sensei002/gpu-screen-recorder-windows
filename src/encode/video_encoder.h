@@ -11,6 +11,8 @@ struct AVCodecContext;
 struct AVFrame;
 struct SwsContext;
 
+class DirectNVENC;
+
 class VideoEncoder {
 public:
     VideoEncoder();
@@ -43,9 +45,17 @@ public:
     bool convert_to_nv12(const VideoFrame& in_frame, uint8_t*& out_nv12, int& out_size);
 
     // Get the codec parameters (for muxer)
-    const AVCodecContext* codec_context() const { return m_codec_ctx; }
-    uint8_t* extra_data() const { return m_extradata; }
-    int extra_data_size() const { return m_extradata_size; }
+    // Returns the AVCodecContext — either from the FFmpeg encoder, or a
+    // synthetic metadata context created for DirectNVENC encoding.
+    const AVCodecContext* codec_context() const {
+        return m_codec_ctx;
+    }
+    uint8_t* extra_data() const {
+        return m_extradata;
+    }
+    int extra_data_size() const {
+        return m_extradata_size;
+    }
 
     // Get encoder info
     bool is_initialized() const { return m_initialized; }
@@ -56,8 +66,12 @@ public:
     static std::vector<std::string> list_available_encoders();
     static bool is_hardware_encoder_available(const std::string& name);
 
+    // Set D3D11 device for hardware encoder interop
+    void set_d3d11_device(void* d3d11_device) { m_d3d11_device = d3d11_device; }
+
 private:
     bool open_encoder();
+    bool try_open_with_direct_nvenc();
     AVFrame* allocate_frame(int width, int height, int format);
     void select_best_encoder();
 
@@ -71,6 +85,12 @@ private:
     uint8_t* m_sws_buffer = nullptr;
     int m_sws_buffer_size = 0;
 
+    // Direct NVENC (when FFmpeg's NVENC wrapper is incompatible)
+    std::unique_ptr<DirectNVENC> m_direct_nvenc;
+
+    // D3D11 device from ScreenCapture (for direct NVENC)
+    void* m_d3d11_device = nullptr;  // ID3D11Device*
+
     // Config
     VideoEncoderConfig m_config;
     bool m_initialized = false;
@@ -79,7 +99,7 @@ private:
     std::atomic<int64_t> m_frames_encoded{0};
     int64_t m_pts = 0;
 
-    // Extradata for codec (needed by muxer)
+    // Extradata for codec (needed by muxer) — FFmpeg path
     uint8_t* m_extradata = nullptr;
     int m_extradata_size = 0;
 

@@ -1,4 +1,5 @@
 #include "encode/video_encoder.h"
+#include "encode/direct_nvenc.h"
 #include "common/log.h"
 
 // Include d3d11.h BEFORE extern "C" FFmpeg headers to prevent conflicts
@@ -52,6 +53,7 @@ bool VideoEncoder::is_hardware_encoder_available(const std::string& name) {
 
 bool VideoEncoder::initialize(const VideoEncoderConfig& config) {
     m_config = config;
+    m_d3d11_device = config.d3d11_device;
     select_best_encoder();
     return open_encoder();
 }
@@ -248,21 +250,32 @@ bool VideoEncoder::open_encoder() {
         av_opt_set(m_codec_ctx->priv_data, "tune", "zerolatency", 0);
     }
 
-    // For NVENC on Windows, create a D3D11VA hardware device context and share
-    // it with the encoder. Without this, FFmpeg's NVENC may fail with ENOSYS
-    // ("Function not implemented") on some GPU/driver combos (e.g., Maxwell + new driver).
-    // This is what OBS Studio does internally for NVENC initialization.
+    // For NVENC on Windows, create a hardware device context and share it with
+    // the encoder. Try CUDA first (NVENC typically uses CUDA interop), then D3D11VA.
+    // This is necessary because recent FFmpeg NVENC requires a hw context for
+    // the encoder session, and some GPU/driver combos need one type over the other.
     AVBufferRef* hw_device_ctx = nullptr;
     if (strstr(m_codec->name, "nvenc")) {
-        int hw_ret = av_hwdevice_ctx_create(&hw_device_ctx, AV_HWDEVICE_TYPE_D3D11VA,
+        // Try CUDA first (NVENC is CUDA-based)
+        int hw_ret = av_hwdevice_ctx_create(&hw_device_ctx, AV_HWDEVICE_TYPE_CUDA,
                                             nullptr, nullptr, 0);
         if (hw_ret >= 0) {
             m_codec_ctx->hw_device_ctx = av_buffer_ref(hw_device_ctx);
-            LOG_INFO("Created D3D11VA hardware context for NVENC");
+            LOG_INFO("Created CUDA hardware context for NVENC");
         } else {
             char hw_errbuf[256];
             av_strerror(hw_ret, hw_errbuf, sizeof(hw_errbuf));
-            LOG_WARN("Could not create D3D11VA context (will try without it): %s", hw_errbuf);
+            LOG_WARN("Could not create CUDA context, trying D3D11VA: %s", hw_errbuf);
+            // Fall back to D3D11VA
+            hw_ret = av_hwdevice_ctx_create(&hw_device_ctx, AV_HWDEVICE_TYPE_D3D11VA,
+                                            nullptr, nullptr, 0);
+            if (hw_ret >= 0) {
+                m_codec_ctx->hw_device_ctx = av_buffer_ref(hw_device_ctx);
+                LOG_INFO("Created D3D11VA hardware context for NVENC");
+            } else {
+                av_strerror(hw_ret, hw_errbuf, sizeof(hw_errbuf));
+                LOG_WARN("Could not create D3D11VA context either: %s", hw_errbuf);
+            }
         }
     }
 
@@ -275,6 +288,14 @@ bool VideoEncoder::open_encoder() {
         if (hw_device_ctx) {
             av_buffer_unref(&hw_device_ctx);
         }
+        
+        // If this is an NVENC encoder that failed, try DirectNVENC instead
+        // (bypassing FFmpeg's incompatible NVENC wrapper)
+        if (strstr(m_codec->name, "nvenc")) {
+            LOG_WARN("FFmpeg NVENC failed, trying DirectNVENC (OBS approach)...");
+            return try_open_with_direct_nvenc();
+        }
+        
         return false;
     }
     if (hw_device_ctx) {
@@ -296,9 +317,91 @@ bool VideoEncoder::open_encoder() {
     return true;
 }
 
+bool VideoEncoder::try_open_with_direct_nvenc() {
+    if (!m_d3d11_device) {
+        LOG_ERROR("DirectNVENC: No D3D11 device available (set via config.d3d11_device)");
+        return false;
+    }
+    
+    // Clean up FFmpeg encoder context (it failed to open)
+    if (m_codec_ctx) {
+        avcodec_free_context(&m_codec_ctx);
+        m_codec_ctx = nullptr;
+    }
+    
+    // Create and initialize DirectNVENC
+    m_direct_nvenc = std::make_unique<DirectNVENC>();
+    
+    bool ok = m_direct_nvenc->initialize(
+        (ID3D11Device*)m_d3d11_device,
+        m_config.width,
+        m_config.height,
+        m_config.fps,
+        m_config.quality,
+        m_config.constant_quality,
+        m_config.bitrate_kbps
+    );
+    
+    if (!ok) {
+        LOG_ERROR("DirectNVENC: Failed to initialize");
+        m_direct_nvenc.reset();
+        return false;
+    }
+    
+    // ── Create a synthetic AVCodecContext for the muxer ──────────────────
+    // The muxer needs an AVCodecContext to write the file header (codec_id,
+    // dimensions, extradata). We create one without calling avcodec_open2()
+    // since DirectNVENC handles the actual encoding. The context is purely
+    // metadata for the muxer.
+    const AVCodec* h264_codec = avcodec_find_encoder(AV_CODEC_ID_H264);
+    m_codec_ctx = avcodec_alloc_context3(h264_codec);
+    if (!m_codec_ctx) {
+        LOG_ERROR("DirectNVENC: Failed to allocate AVCodecContext for muxer");
+        m_direct_nvenc->shutdown();
+        m_direct_nvenc.reset();
+        return false;
+    }
+    
+    // Populate the context with our encoding parameters (no avcodec_open2!)
+    m_codec_ctx->codec_type = AVMEDIA_TYPE_VIDEO;
+    m_codec_ctx->codec_id = AV_CODEC_ID_H264;
+    m_codec_ctx->width = m_config.width;
+    m_codec_ctx->height = m_config.height;
+    m_codec_ctx->time_base = AVRational{1, m_config.fps};
+    m_codec_ctx->framerate = AVRational{m_config.fps, 1};
+    m_codec_ctx->pix_fmt = AV_PIX_FMT_NV12;
+    m_codec_ctx->gop_size = m_config.fps * 2;
+    m_codec_ctx->max_b_frames = 0;
+    m_codec_ctx->bit_rate = m_config.bitrate_kbps * 1000;
+    m_codec_ctx->profile = FF_PROFILE_H264_MAIN;
+    m_codec_ctx->level = 41;  // 4.1, supports 1080p@60
+    
+    // Copy extradata (SPS/PPS) from DirectNVENC to the FFmpeg context
+    const uint8_t* extra = m_direct_nvenc->extra_data();
+    int extra_size = m_direct_nvenc->extra_data_size();
+    if (extra && extra_size > 0) {
+        m_codec_ctx->extradata = (uint8_t*)av_mallocz(extra_size + AV_INPUT_BUFFER_PADDING_SIZE);
+        if (m_codec_ctx->extradata) {
+            memcpy(m_codec_ctx->extradata, extra, extra_size);
+            m_codec_ctx->extradata_size = extra_size;
+        }
+    }
+    
+    m_initialized = true;
+    LOG_INFO("Encoder initialized: h264_nvenc (DirectNVENC, %s)",
+             m_config.constant_quality ? "CQ mode" : "bitrate mode");
+    return true;
+}
+
 void VideoEncoder::shutdown() {
     if (m_initialized) {
         flush();
+    }
+
+    // Shutdown DirectNVENC if active
+    if (m_direct_nvenc) {
+        m_direct_nvenc->shutdown();
+        m_direct_nvenc.reset();
     }
 
     // Free the frame
@@ -316,15 +419,21 @@ void VideoEncoder::shutdown() {
         m_sws_buffer = nullptr;
     }
 
-    // Free extradata
+    // Free extradata (FFmpeg path)
     if (m_extradata) {
         av_free(m_extradata);
         m_extradata = nullptr;
     }
 
+    // Free the FFmpeg codec context (handles both FFmpeg encoder path
+    // and the synthetic metadata context created for DirectNVENC)
     if (m_codec_ctx) {
         avcodec_free_context(&m_codec_ctx);
     }
+
+    // Clear packet queue
+    m_packet_queue.clear();
+    m_packet_read_index = 0;
 
     m_initialized = false;
     LOG_DEBUG("Encoder shutdown");
@@ -349,7 +458,19 @@ bool VideoEncoder::encode_frame(const VideoFrame& frame) {
 }
 
 bool VideoEncoder::encode_frame_nv12(const uint8_t* nv12_data, int width, int height, int64_t timestamp_us) {
-    if (!m_initialized || !m_codec_ctx) return false;
+    if (!m_initialized) return false;
+
+    // Route to DirectNVENC if active
+    if (m_direct_nvenc) {
+        bool ok = m_direct_nvenc->encode_frame(nv12_data, width, height, timestamp_us);
+        if (ok) {
+            m_frames_encoded++;
+        }
+        return ok;
+    }
+
+    // FFmpeg path
+    if (!m_codec_ctx) return false;
 
     // Allocate or reuse AVFrame
     if (!m_frame) {
@@ -427,6 +548,21 @@ bool VideoEncoder::encode_frame_nv12(const uint8_t* nv12_data, int width, int he
 }
 
 bool VideoEncoder::get_encoded_packet(EncodedPacket& packet) {
+    // Try DirectNVENC queue first if active
+    if (m_direct_nvenc) {
+        // Drain DirectNVENC's internal queue into our shared queue
+        DirectNVENC::EncodedPacket dp;
+        while (m_direct_nvenc->get_encoded_packet(dp)) {
+            EncodedPacket ep;
+            ep.data = std::move(dp.data);
+            ep.pts = dp.pts;
+            ep.dts = dp.dts;
+            ep.duration = dp.duration;
+            ep.keyframe = dp.keyframe;
+            m_packet_queue.push_back(std::move(ep));
+        }
+    }
+
     if (m_packet_read_index >= m_packet_queue.size()) {
         return false;
     }
@@ -436,7 +572,16 @@ bool VideoEncoder::get_encoded_packet(EncodedPacket& packet) {
 }
 
 void VideoEncoder::flush() {
-    if (!m_initialized || !m_codec_ctx) return;
+    if (!m_initialized) return;
+
+    // Flush DirectNVENC if active
+    if (m_direct_nvenc) {
+        m_direct_nvenc->flush();
+        return;
+    }
+
+    // FFmpeg path
+    if (!m_codec_ctx) return;
 
     // Send null frame to flush encoder
     int ret = avcodec_send_frame(m_codec_ctx, nullptr);
@@ -471,6 +616,8 @@ void VideoEncoder::flush() {
 bool VideoEncoder::convert_to_nv12(const VideoFrame& in_frame, uint8_t*& out_nv12, int& out_size) {
     int width = in_frame.width;
     int height = in_frame.height;
+    int enc_width = m_config.width;
+    int enc_height = m_config.height;
 
     // NV12 size = width * height (Y) + width * height / 2 (UV interleaved)
     out_size = width * height + width * height / 2;
@@ -480,11 +627,11 @@ bool VideoEncoder::convert_to_nv12(const VideoFrame& in_frame, uint8_t*& out_nv1
         return false;
     }
 
-    // Create or reuse sws context
+    // Create or reuse sws context (use encoder dimensions from config)
     m_sws_ctx = sws_getCachedContext(
         m_sws_ctx,
         width, height, AV_PIX_FMT_BGRA,
-        m_codec_ctx->width, m_codec_ctx->height, AV_PIX_FMT_NV12,
+        enc_width, enc_height, AV_PIX_FMT_NV12,
         SWS_BILINEAR | SWS_ACCURATE_RND,
         nullptr, nullptr, nullptr
     );
@@ -536,6 +683,7 @@ AVFrame* VideoEncoder::allocate_frame(int width, int height, int format) {
 }
 
 std::string VideoEncoder::encoder_name() const {
+    if (m_direct_nvenc) return "h264_nvenc (direct)";
     if (m_codec) return m_codec->name;
     return "none";
 }

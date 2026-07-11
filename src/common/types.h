@@ -70,6 +70,8 @@ struct VideoEncoderConfig {
     bool enable_10bit = false;
     int keyint_seconds = 2; // Keyframe interval in seconds
     std::string encoder_name; // Empty = auto-select best available
+    // D3D11 device for hardware encoder interop (set by Recorder)
+    void* d3d11_device = nullptr; // ID3D11Device*
 };
 
 // ─── Audio ───────────────────────────────────────────────────────────────────

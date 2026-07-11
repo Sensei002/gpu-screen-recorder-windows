@@ -70,6 +70,7 @@ set(ENCODE_SOURCES
     src/encode/video_encoder.cpp
     src/encode/audio_encoder.cpp
     src/encode/muxer.cpp
+    src/encode/direct_nvenc.cpp
 )
 
 set(REPLAY_SOURCES
@@ -97,6 +98,7 @@ set(ENCODE_HEADERS
     src/encode/video_encoder.h
     src/encode/audio_encoder.h
     src/encode/muxer.h
+    src/encode/direct_nvenc.h
 )
 
 set(REPLAY_HEADERS

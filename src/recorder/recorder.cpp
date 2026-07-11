@@ -65,8 +65,9 @@ bool Recorder::init_components() {
     if (m_config.video.height == 0) m_config.video.height = m_screen_capture->capture_height();
     if (m_config.video.fps == 0) m_config.video.fps = m_config.capture.fps;
 
-    // Video encoder
+    // Video encoder — pass D3D11 device for hardware encoder interop
     m_video_encoder = std::make_unique<VideoEncoder>();
+    m_config.video.d3d11_device = m_screen_capture->d3d_device();
     if (!m_video_encoder->initialize(m_config.video)) {
         LOG_ERROR("Failed to initialize video encoder");
         return false;
