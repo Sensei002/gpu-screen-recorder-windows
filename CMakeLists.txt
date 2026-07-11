@@ -179,7 +179,6 @@ if(GSR_BUILD_CLI)
 
     install(TARGETS gpu-screen-recorder
         RUNTIME DESTINATION bin
-        PDB DESTINATION bin
     )
 endif()
 
@@ -244,7 +243,6 @@ if(GSR_BUILD_UI)
 
     install(TARGETS gsr-ui
         RUNTIME DESTINATION bin
-        PDB DESTINATION bin
     )
 endif()
 
@@ -271,7 +269,6 @@ if(GSR_BUILD_NOTIFICATION)
 
     install(TARGETS gsr-notification
         RUNTIME DESTINATION bin
-        PDB DESTINATION bin
     )
 endif()
 
