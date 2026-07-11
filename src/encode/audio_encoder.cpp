@@ -22,27 +22,31 @@ extern "C" {
 #  define GSR_HAVE_NEW_CHANNEL_API 0
 #endif
 
-// Helper: set channel layout on a codec context or frame
-static void set_ch_layout(void* obj, int channels) {
+// Helper: read channel count from a codec context
+static int get_ch_nb(const AVCodecContext* ctx) {
 #if GSR_HAVE_NEW_CHANNEL_API
-    // AVCodecContext and AVFrame both have ch_layout of type AVChannelLayout
-    AVCodecContext* ctx = reinterpret_cast<AVCodecContext*>(obj);
-    av_channel_layout_default(&ctx->ch_layout, channels);
+    return ctx->ch_layout.nb_channels;
 #else
-    AVCodecContext* ctx = reinterpret_cast<AVCodecContext*>(obj);
-    ctx->channels = channels;
-    ctx->channel_layout = av_get_default_channel_layout(channels);
+    return ctx->channels;
 #endif
 }
 
-// Helper: read channel count from a codec context or frame
-static int get_ch_nb(const void* obj) {
+// Helper: read channel count from a frame
+static int get_frame_ch_nb(const AVFrame* frame) {
 #if GSR_HAVE_NEW_CHANNEL_API
-    const AVCodecContext* ctx = reinterpret_cast<const AVCodecContext*>(obj);
-    return ctx->ch_layout.nb_channels;
+    return frame->ch_layout.nb_channels;
 #else
-    const AVCodecContext* ctx = reinterpret_cast<const AVCodecContext*>(obj);
-    return ctx->channels;
+    return frame->channels;
+#endif
+}
+
+// Helper: set channel layout on a codec context
+static void set_codec_ch_layout(AVCodecContext* ctx, int channels) {
+#if GSR_HAVE_NEW_CHANNEL_API
+    av_channel_layout_default(&ctx->ch_layout, channels);
+#else
+    ctx->channels = channels;
+    ctx->channel_layout = av_get_default_channel_layout(channels);
 #endif
 }
 
@@ -66,8 +70,8 @@ static void copy_ch_layout_to_frame(AVFrame* frame, const AVCodecContext* ctx) {
 #endif
 }
 
-// Helper: create SwrContext
-static SwrContext* create_swr_ctx(
+// Helper: allocate and configure SwrContext (does NOT call swr_init)
+static SwrContext* alloc_swr_ctx(
     const AVCodecContext* encoder_ctx,
     const AVFrame* input_frame)
 {
@@ -83,11 +87,6 @@ static SwrContext* create_swr_ctx(
     av_opt_set_int(swr,     "out_sample_rate", encoder_ctx->sample_rate, 0);
     av_opt_set_sample_fmt(swr, "out_sample_fmt",
         encoder_ctx->sample_fmt, 0);
-
-    if (swr_init(swr) < 0) {
-        swr_free(&swr);
-        return nullptr;
-    }
     return swr;
 #else
     return swr_alloc_set_opts(nullptr,
@@ -138,7 +137,7 @@ bool AudioEncoder::open_encoder() {
     // Configure
     m_codec_ctx->sample_fmt = AV_SAMPLE_FMT_FLTP; // Planar float (most encoders prefer this)
     m_codec_ctx->sample_rate = m_config.sample_rate;
-    set_ch_layout(m_codec_ctx, m_config.channels);
+    set_codec_ch_layout(m_codec_ctx, m_config.channels);
     m_codec_ctx->bit_rate = m_config.bitrate_kbps * 1000;
 
     // Set timebase
