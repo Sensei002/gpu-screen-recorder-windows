@@ -248,13 +248,37 @@ bool VideoEncoder::open_encoder() {
         av_opt_set(m_codec_ctx->priv_data, "tune", "zerolatency", 0);
     }
 
+    // For NVENC on Windows, create a D3D11VA hardware device context and share
+    // it with the encoder. Without this, FFmpeg's NVENC may fail with ENOSYS
+    // ("Function not implemented") on some GPU/driver combos (e.g., Maxwell + new driver).
+    // This is what OBS Studio does internally for NVENC initialization.
+    AVBufferRef* hw_device_ctx = nullptr;
+    if (strstr(m_codec->name, "nvenc")) {
+        int hw_ret = av_hwdevice_ctx_create(&hw_device_ctx, AV_HWDEVICE_TYPE_D3D11VA,
+                                            nullptr, nullptr, 0);
+        if (hw_ret >= 0) {
+            m_codec_ctx->hw_device_ctx = av_buffer_ref(hw_device_ctx);
+            LOG_INFO("Created D3D11VA hardware context for NVENC");
+        } else {
+            char hw_errbuf[256];
+            av_strerror(hw_ret, hw_errbuf, sizeof(hw_errbuf));
+            LOG_WARN("Could not create D3D11VA context (will try without it): %s", hw_errbuf);
+        }
+    }
+
     // Open the codec
     int ret = avcodec_open2(m_codec_ctx, m_codec, nullptr);
     if (ret < 0) {
         char errbuf[256];
         av_strerror(ret, errbuf, sizeof(errbuf));
         LOG_ERROR("Failed to open encoder: %s", errbuf);
+        if (hw_device_ctx) {
+            av_buffer_unref(&hw_device_ctx);
+        }
         return false;
+    }
+    if (hw_device_ctx) {
+        av_buffer_unref(&hw_device_ctx);
     }
 
     // Save extradata for muxer
