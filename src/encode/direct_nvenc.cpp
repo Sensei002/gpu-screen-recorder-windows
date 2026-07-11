@@ -17,6 +17,22 @@
 // m_funcs is stored as void* in the header to avoid including nvEncodeAPI.h there.
 #define NVF() ((NV_ENCODE_API_FUNCTION_LIST*)m_funcs)
 
+// ─── Struct version helpers ─────────────────────────────────────────────────
+// The NVENC struct version field embeds the API version in bits 0-7 (major)
+// and 24-27 (minor). When we negotiate an older API version, we must adjust
+// the struct version fields to match, otherwise the driver returns
+// NV_ENC_ERR_INVALID_VERSION.
+//
+// NVENCAPI_STRUCT_VERSION(n) = NVENCAPI_VERSION | (n << 16) | (0x7 << 28)
+// Some structs also have bit 31 set (extended flag).
+
+static inline uint32_t nv_struct_ver(uint32_t api_ver, uint32_t struct_n) {
+    return api_ver | (struct_n << 16) | (0x7u << 28);
+}
+static inline uint32_t nv_struct_ver_ext(uint32_t api_ver, uint32_t struct_n) {
+    return api_ver | (struct_n << 16) | (0x7u << 28) | (1u << 31);
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 //  Implementation
 // ═════════════════════════════════════════════════════════════════════════════
@@ -141,13 +157,14 @@ bool DirectNVENC::create_session() {
     for (uint32_t ver : api_versions) {
         NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS params{};
         memset(&params, 0, sizeof(params));
-        params.version    = NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS_VER;
+        params.version    = nv_struct_ver(ver, 1);  // struct 1 = OPEN_ENCODE_SESSION_EX_PARAMS
         params.deviceType = NV_ENC_DEVICE_TYPE_DIRECTX;
         params.device     = m_device;
         params.apiVersion = ver;
 
         NVENCSTATUS status = NVF()->nvEncOpenEncodeSessionEx(&params, &m_session);
         if (status == NV_ENC_SUCCESS) {
+            m_api_version = ver;
             LOG_INFO("DirectNVENC: Session opened with API v%u", ver);
             return true;
         }
@@ -192,7 +209,7 @@ bool DirectNVENC::configure_encoder() {
     // ── Main codec config ──────────────────────────────────────────────
     NV_ENC_CONFIG encConfig{};
     memset(&encConfig, 0, sizeof(encConfig));
-    encConfig.version        = NV_ENC_CONFIG_VER;
+    encConfig.version        = nv_struct_ver_ext(m_api_version, 9);  // struct 9 = NV_ENC_CONFIG
     encConfig.profileGUID    = NV_ENC_H264_PROFILE_MAIN_GUID;
     encConfig.gopLength      = (uint32_t)(m_fps * 2);   // 2-second GOP
     encConfig.frameIntervalP = 1;                        // I and P only (no B-frames)
@@ -222,7 +239,7 @@ bool DirectNVENC::configure_encoder() {
     // ── Initialize params ──────────────────────────────────────────────
     NV_ENC_INITIALIZE_PARAMS initParams{};
     memset(&initParams, 0, sizeof(initParams));
-    initParams.version        = NV_ENC_INITIALIZE_PARAMS_VER;
+    initParams.version        = nv_struct_ver_ext(m_api_version, 7);  // struct 7 = NV_ENC_INITIALIZE_PARAMS
     initParams.encodeGUID     = NV_ENC_CODEC_H264_GUID;
     initParams.presetGUID     = NV_ENC_PRESET_P3_GUID;  // P3 = efficient, widely compatible
     initParams.encodeWidth    = (uint32_t)m_width;
@@ -258,7 +275,7 @@ bool DirectNVENC::create_buffers() {
     // Create input buffer (system memory, NV12)
     NV_ENC_CREATE_INPUT_BUFFER inBuf{};
     memset(&inBuf, 0, sizeof(inBuf));
-    inBuf.version   = NV_ENC_CREATE_INPUT_BUFFER_VER;
+    inBuf.version   = nv_struct_ver(m_api_version, 2);  // struct 2 = NV_ENC_CREATE_INPUT_BUFFER
     inBuf.width     = (uint32_t)m_width;
     inBuf.height    = (uint32_t)m_height;
     inBuf.bufferFmt = NV_ENC_BUFFER_FORMAT_NV12;
@@ -274,7 +291,7 @@ bool DirectNVENC::create_buffers() {
     // Create output bitstream buffer
     NV_ENC_CREATE_BITSTREAM_BUFFER outBuf{};
     memset(&outBuf, 0, sizeof(outBuf));
-    outBuf.version = NV_ENC_CREATE_BITSTREAM_BUFFER_VER;
+    outBuf.version = nv_struct_ver(m_api_version, 1);  // struct 1 = NV_ENC_CREATE_BITSTREAM_BUFFER
 
     status = NVF()->nvEncCreateBitstreamBuffer(m_session, &outBuf);
     if (status != NV_ENC_SUCCESS) {
@@ -299,7 +316,7 @@ bool DirectNVENC::get_sequence_params() {
 
     NV_ENC_SEQUENCE_PARAM_PAYLOAD payload{};
     memset(&payload, 0, sizeof(payload));
-    payload.version        = NV_ENC_SEQUENCE_PARAM_PAYLOAD_VER;
+    payload.version        = nv_struct_ver(m_api_version, 1);  // struct 1 = NV_ENC_SEQUENCE_PARAM_PAYLOAD
     payload.inBufferSize   = sizeof(buffer);
     payload.spsppsBuffer   = buffer;
     payload.spsId          = 0;
@@ -359,6 +376,7 @@ void DirectNVENC::shutdown() {
     }
     m_session = nullptr;
     m_device = nullptr;
+    m_api_version = 0;
 
     m_packet_queue.clear();
     m_packet_read_index = 0;
@@ -390,7 +408,7 @@ bool DirectNVENC::encode_frame(const uint8_t* nv12_data, int width, int height,
     // ── Encode picture ─────────────────────────────────────────────────
     NV_ENC_PIC_PARAMS picParams{};
     memset(&picParams, 0, sizeof(picParams));
-    picParams.version         = NV_ENC_PIC_PARAMS_VER;
+    picParams.version         = nv_struct_ver_ext(m_api_version, 7);  // struct 7 = NV_ENC_PIC_PARAMS
     picParams.inputWidth      = (uint32_t)m_width;
     picParams.inputHeight     = (uint32_t)m_height;
     picParams.inputPitch      = (uint32_t)m_width;
@@ -424,7 +442,7 @@ bool DirectNVENC::encode_frame(const uint8_t* nv12_data, int width, int height,
     // ── Retrieve encoded bitstream ─────────────────────────────────────
     NV_ENC_LOCK_BITSTREAM lockBistream{};
     memset(&lockBistream, 0, sizeof(lockBistream));
-    lockBistream.version       = NV_ENC_LOCK_BITSTREAM_VER;
+    lockBistream.version       = nv_struct_ver_ext(m_api_version, 2);  // struct 2 = NV_ENC_LOCK_BITSTREAM
     lockBistream.outputBitstream = m_output_buffer;
     lockBistream.doNotWait     = 0;  // synchronous
 
@@ -464,7 +482,7 @@ void DirectNVENC::flush() {
     // Send EOS (End Of Stream)
     NV_ENC_PIC_PARAMS picParams{};
     memset(&picParams, 0, sizeof(picParams));
-    picParams.version        = NV_ENC_PIC_PARAMS_VER;
+    picParams.version        = nv_struct_ver_ext(m_api_version, 7);  // struct 7 = NV_ENC_PIC_PARAMS
     picParams.encodePicFlags = NV_ENC_PIC_FLAG_EOS;
 
     NVF()->nvEncEncodePicture(m_session, &picParams);

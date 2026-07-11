@@ -57,12 +57,13 @@ private:
     bool get_sequence_params();
 
     // State (m_funcs is void* to avoid including nvEncodeAPI.h in this header)
-    void*       m_module       = nullptr; // HMODULE
-    void*       m_funcs        = nullptr; // NV_ENCODE_API_FUNCTION_LIST* (cast in .cpp)
-    void*       m_session      = nullptr;
-    void*       m_input_buffer = nullptr;
+    void*       m_module        = nullptr; // HMODULE
+    void*       m_funcs         = nullptr; // NV_ENCODE_API_FUNCTION_LIST* (cast in .cpp)
+    void*       m_session       = nullptr;
+    void*       m_input_buffer  = nullptr;
     void*       m_output_buffer = nullptr;
-    ID3D11Device* m_device     = nullptr;
+    ID3D11Device* m_device      = nullptr;
+    uint32_t    m_api_version   = 0;       // Negotiated NVENC API version
 
     int      m_width           = 0;
     int      m_height          = 0;
