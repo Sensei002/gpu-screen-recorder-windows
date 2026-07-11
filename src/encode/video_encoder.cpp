@@ -53,7 +53,45 @@ bool VideoEncoder::is_hardware_encoder_available(const std::string& name) {
 bool VideoEncoder::initialize(const VideoEncoderConfig& config) {
     m_config = config;
     select_best_encoder();
-    return open_encoder();
+    if (open_encoder()) return true;
+
+    // If a user-specified encoder failed, don't try fallbacks
+    if (!m_config.encoder_name.empty()) {
+        return false;
+    }
+
+    // Hardware encoder failed — try the software encoder as fallback
+    LOG_WARN("Hardware encoder '%s' failed, trying software encoder", 
+             m_codec ? m_codec->name : "(none)");
+    cleanup_encoder_state();
+
+    const char* sw_encoder = nullptr;
+    switch (m_config.codec) {
+        case VideoCodec::H264: sw_encoder = "libx264"; break;
+        case VideoCodec::HEVC: sw_encoder = "libx265"; break;
+        case VideoCodec::AV1:  sw_encoder = "libaom-av1"; break;
+        case VideoCodec::VP8:  sw_encoder = "libvpx"; break;
+        case VideoCodec::VP9:  sw_encoder = "libvpx-vp9"; break;
+    }
+
+    if (sw_encoder) {
+        m_codec = avcodec_find_encoder_by_name(sw_encoder);
+        if (m_codec) {
+            LOG_INFO("Fallback software encoder: %s", sw_encoder);
+            return open_encoder();
+        }
+        LOG_WARN("Software encoder '%s' not found", sw_encoder);
+    }
+
+    return false;
+}
+
+void VideoEncoder::cleanup_encoder_state() {
+    if (m_codec_ctx) {
+        avcodec_free_context(&m_codec_ctx);
+    }
+    m_codec = nullptr;
+    m_initialized = false;
 }
 
 void VideoEncoder::select_best_encoder() {
@@ -174,20 +212,26 @@ bool VideoEncoder::open_encoder() {
 
     // Quality / bitrate settings
     if (m_config.constant_quality) {
-        // CRF / CQ mode
-        m_codec_ctx->flags |= AV_CODEC_FLAG_QSCALE;
-        m_codec_ctx->global_quality = m_config.quality;
+        // NOTE: AV_CODEC_FLAG_QSCALE is NOT set here because hardware encoders
+        // (NVENC, AMF, QSV) don't support it — they use their own quality params
+        // via av_opt_set. Setting QSCALE on NVENC causes avcodec_open2() to fail
+        // with EINVAL on Maxwell-era GPUs and recent FFmpeg builds.
 
         // Set codec-specific quality options
         const char* quality_param = nullptr;
         if (strstr(m_codec->name, "nvenc")) {
             quality_param = "cq";
+            // NVENC uses its own rate control — set rc to vbr for CQ mode
+            av_opt_set(m_codec_ctx->priv_data, "rc", "vbr", 0);
         } else if (strstr(m_codec->name, "amf")) {
             quality_param = "quality";
         } else if (strstr(m_codec->name, "qsv")) {
             quality_param = "global_quality";
         } else if (strstr(m_codec->name, "libx264") || strstr(m_codec->name, "libx265")) {
             quality_param = "crf";
+            // Software encoders DO support traditional QSCALE
+            m_codec_ctx->flags |= AV_CODEC_FLAG_QSCALE;
+            m_codec_ctx->global_quality = m_config.quality;
         }
 
         if (quality_param) {
@@ -209,9 +253,15 @@ bool VideoEncoder::open_encoder() {
     // Set codec-specific options for hardware encoders
     if (strstr(m_codec->name, "nvenc")) {
         // NVENC specific options
-        av_opt_set(m_codec_ctx->priv_data, "preset", "p6", 0);
+        // Use "hq" preset for broadest compatibility (Maxwell through Ada).
+        // The "p6"/"p7" presets are Turing+ only and will fail on GTX 900-series (Maxwell).
+        av_opt_set(m_codec_ctx->priv_data, "preset", "hq", 0);
         av_opt_set(m_codec_ctx->priv_data, "tune", "hq", 0);
-        av_opt_set(m_codec_ctx->priv_data, "rc", m_config.constant_quality ? "vbr" : "cbr", 0);
+        // rc is set above in the quality section if constant_quality is enabled,
+        // otherwise set it now for bitrate mode
+        if (!m_config.constant_quality) {
+            av_opt_set(m_codec_ctx->priv_data, "rc", "cbr", 0);
+        }
         av_opt_set_int(m_codec_ctx->priv_data, "delay", 0, 0); // Low latency
         av_opt_set_int(m_codec_ctx->priv_data, "b_ref_mode", 0, 0); // No B-frames
 

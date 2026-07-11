@@ -58,6 +58,7 @@ public:
 
 private:
     bool open_encoder();
+    void cleanup_encoder_state();
     AVFrame* allocate_frame(int width, int height, int format);
     void select_best_encoder();
 
