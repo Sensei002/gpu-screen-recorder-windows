@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/types.h"
+#include <windows.h>
 #include <memory>
 #include <atomic>
 #include <functional>

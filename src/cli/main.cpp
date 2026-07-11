@@ -36,17 +36,14 @@ void signal_handler(int signal) {
             g_should_exit = true;
             break;
 
+#ifndef _WIN32
         case SIGUSR1:
-#ifdef _WIN32
-            // On Windows, SIGUSR1 is not available. Use a console event handler instead.
-            // We'll handle this via named pipe in the full implementation.
-#else
             LOG_INFO("SIGUSR1 received - saving replay");
             if (g_recorder) {
                 g_recorder->save_replay();
             }
-#endif
             break;
+#endif
 
         default:
             break;

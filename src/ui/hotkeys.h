@@ -1,10 +1,12 @@
 #pragma once
 
 #include "common/types.h"
+#include <windows.h>
 #include <functional>
 #include <cstdint>
 #include <atomic>
 #include <memory>
+#include <mutex>
 #include <thread>
 #include <vector>
 #include <unordered_map>

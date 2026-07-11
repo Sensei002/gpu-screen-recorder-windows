@@ -59,6 +59,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         return 1;
     }
 
+    // Make set_notification_manager accessible
+    g_recorder->set_notification_manager(g_notification_mgr);
+
     // Create overlay
     g_overlay = std::make_unique<Overlay>();
     if (!g_overlay->initialize(hInstance, nCmdShow)) {
@@ -93,15 +96,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         LOG_WARN("Failed to initialize hotkey manager");
     }
 
-    // Connect notifications to recorder
-    g_recorder->set_notification_manager(g_notification_mgr);
-
     // Set up all callbacks
     setup_callbacks();
 
     // Start replay mode by default
     if (cfg.recorder().output_mode == OutputMode::Replay ||
-        cfg.recorder().output_mode == OutputMode::Idle) {
+        cfg.recorder().output_mode == OutputMode::ReplayAndRecord) {
         LOG_INFO("Starting replay mode by default");
         g_recorder->start_replay(cfg.recorder().output_directory);
     }

@@ -189,9 +189,9 @@ bool NotificationRenderer::create_window() {
     wc.lpfnWndProc = window_proc;
     wc.hInstance = GetModuleHandle(nullptr);
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    wc.lpszClassName = L"GSRNotificationClass";
+    wc.lpszClassName = "GSRNotificationClass";
 
-    if (!RegisterClassEx(&wc)) {
+    if (!RegisterClassExA(&wc)) {
         // Class may already be registered from a previous instance
         if (GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
             LOG_ERROR("Failed to register notification window class");
@@ -199,10 +199,10 @@ bool NotificationRenderer::create_window() {
         }
     }
 
-    m_hwnd = CreateWindowEx(
+    m_hwnd = CreateWindowExA(
         WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
-        L"GSRNotificationClass",
-        L"GPU Screen Recorder Notification",
+        "GSRNotificationClass",
+        "GPU Screen Recorder Notification",
         WS_POPUP,
         0, 0, m_window_width, m_window_height,
         nullptr, nullptr, GetModuleHandle(nullptr), this

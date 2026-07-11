@@ -123,9 +123,10 @@ private:
     ErrorCallback m_error_callback;
     RecordingCompleteCallback m_complete_callback;
 
-    // Set notification manager
-    void set_notification_manager(std::shared_ptr<NotificationManager> mgr) { m_notification_manager = mgr; }
-
     // Output path
     std::string m_current_output_path;
+
+public:
+    // Set notification manager
+    void set_notification_manager(std::shared_ptr<NotificationManager> mgr) { m_notification_manager = mgr; }
 };
