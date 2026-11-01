@@ -2598,10 +2598,10 @@ namespace gsr {
 
 #ifdef _WIN32
     void Overlay::drain_gsr_process_output() {
-        /* Drains the engine's stdout pipe synchronously after the process
-           has exited (the update loop is blocked in a waitpid inside the
-           stop handler, so process_gsr_output() won't run). Processes the
-           same lines as process_gsr_output(). */
+        /* Reads everything currently buffered in the engine's stdout pipe
+           and processes it line by line. Kept for callers that need the
+           engine's final output synchronously; the per-frame
+           process_gsr_output() is the normal path. */
         if(gpu_screen_recorder_process_output_fd <= 0)
             return;
 
@@ -3535,21 +3535,20 @@ namespace gsr {
 
         if(gpu_screen_recorder_process > 0) {
 #ifdef _WIN32
-            /* Windows: graceful stop over the -ipc pipe; the engine stops,
-               finalizes and exits on its own. */
+            /* Non-blocking stop: see the record stop path. Waiting here
+               blocked the render thread for up to 15 s and froze the
+               overlay; update_gsr_process_status() finalizes on exit. */
             send_gsr_control_command(GSR_REPLAY_IPC_PIPE, "stop");
+            replay_launched_manually = false;
+            replay_save_duration_min = 0;
+            return true;
 #else
             kill(gpu_screen_recorder_process, SIGINT);
-#endif
-#ifdef _WIN32
-            wait_gsr_process_exit(gpu_screen_recorder_process, 15000);
-#else
             int status;
             if(waitpid(gpu_screen_recorder_process, &status, 0) == -1) {
                 perror("waitpid failed");
                 /* Ignore... */
             }
-#endif
 
             close_gpu_screen_recorder_output();
 
@@ -3567,6 +3566,7 @@ namespace gsr {
                 show_notification(TR("Replay stopped"), notification_timeout_seconds, mgl::Color(255, 255, 255), get_color_theme().tint_color, NotificationType::REPLAY);
 
             return true;
+#endif
         }
 
         if(config.replay_config.record_options.record_area_option == "region" && !finished_selection) {
@@ -3773,22 +3773,19 @@ namespace gsr {
 
         if(gpu_screen_recorder_process > 0) {
 #ifdef _WIN32
-            /* Windows: graceful stop over the -ipc pipe; gsr-cli is detached
-               and the engine stops, finalizes the file and prints the
-               "Video_..." path to stdout before exiting. The output pipe
-               must stay open until after drain_gsr_process_output(). */
+            /* Windows: graceful stop over the -ipc pipe. gsr-cli is
+               detached; the engine stops, finalizes the file and prints the
+               "Video_..." path to stdout before exiting.
+               Do NOT wait for it here. This runs on the render thread, and
+               the former 15 s wait froze the whole overlay (no redraw, no
+               input) whenever the engine was slow or wedged. Finalization
+               happens in update_gsr_process_status(), which already handles
+               the engine exiting on its own: it drains stdout, calls
+               on_stop_recording() with the printed path and resets the UI. */
             send_gsr_control_command(GSR_RECORD_IPC_PIPE, "stop");
+            return;
 #else
             kill(gpu_screen_recorder_process, SIGINT);
-#endif
-#ifdef _WIN32
-            const int exit_code = wait_gsr_process_exit(gpu_screen_recorder_process, 15000);
-            /* The update loop is blocked above, so drain the engine's stdout
-               now to pick up the final filepath line. */
-            drain_gsr_process_output();
-            if(record_filepath.empty())
-                on_stop_recording(exit_code, record_filepath);
-#else
             int status;
             if(waitpid(gpu_screen_recorder_process, &status, 0) == -1) {
                 perror("waitpid failed");
@@ -3800,7 +3797,6 @@ namespace gsr {
                 if(record_filepath.empty())
                     on_stop_recording(exit_code, record_filepath);
             }
-#endif
 
             close_gpu_screen_recorder_output();
 
@@ -3813,6 +3809,7 @@ namespace gsr {
             if(led_indicator)
                 led_indicator->set_led(false);
             return;
+#endif
         }
 
         update_upause_status();
@@ -4013,19 +4010,16 @@ namespace gsr {
 
         if(gpu_screen_recorder_process > 0) {
 #ifdef _WIN32
+            /* Non-blocking stop: see the record stop path. */
             send_gsr_control_command(GSR_STREAM_IPC_PIPE, "stop");
+            return;
 #else
             kill(gpu_screen_recorder_process, SIGINT);
-#endif
-#ifdef _WIN32
-            wait_gsr_process_exit(gpu_screen_recorder_process, 15000);
-#else
             int status;
             if(waitpid(gpu_screen_recorder_process, &status, 0) == -1) {
                 perror("waitpid failed");
                 /* Ignore... */
             }
-#endif
 
             close_gpu_screen_recorder_output();
 
@@ -4040,6 +4034,7 @@ namespace gsr {
             if(config.streaming_config.record_options.show_notifications)
                 show_notification(TR("Streaming has stopped"), notification_timeout_seconds, mgl::Color(255, 255, 255), get_color_theme().tint_color, NotificationType::STREAM);
             return;
+#endif
         }
 
         if(config.streaming_config.record_options.record_area_option == "region" && !finished_selection) {

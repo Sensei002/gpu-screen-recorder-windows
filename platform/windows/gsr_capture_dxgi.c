@@ -97,6 +97,12 @@ typedef struct {
     bool should_stop;
     bool stop_is_error;
     void *import_handle;
+
+    /* ACCESS_LOST recovery. DXGI refuses an immediate re-DuplicateOutput
+       (typically 0x80070005 while the desktop is mid-transition), so the
+       re-create is retried with a delay instead of failing the recording. */
+    ULONGLONG next_recreate_ms;
+    int recreate_failures;
 } gsr_capture_dxgi;
 
 /* ---- vtable implementations ---------------------------------------------- */
@@ -132,6 +138,42 @@ static void dxgi_destroy_duplication(gsr_capture_dxgi *self) {
         self->output1->lpVtbl->Release(self->output1);
         self->output1 = NULL;
     }
+}
+
+/* How long to keep retrying a lost duplication before failing the
+   recording. DXGI only allows one duplication client per output, so the
+   re-create can keep failing while another client (or a transitioning
+   desktop: UAC, lock screen, display mode change, fullscreen exclusive
+   switch) still owns it. A few seconds of retries covers all of those;
+   giving up on the first attempt killed the recording permanently. */
+#define GSR_DXGI_RECREATE_RETRY_MS 500
+#define GSR_DXGI_RECREATE_MAX_FAILURES 20 /* ~10 s */
+
+static bool dxgi_try_recreate_duplication(gsr_capture_dxgi *self) {
+    if(!self->output1 || !self->device)
+        return false;
+
+    IDXGIOutputDuplication *duplication = NULL;
+    const HRESULT hr = self->output1->lpVtbl->DuplicateOutput(self->output1, (IUnknown*)self->device, &duplication);
+    if(FAILED(hr)) {
+        ++self->recreate_failures;
+        self->next_recreate_ms = GetTickCount64() + GSR_DXGI_RECREATE_RETRY_MS;
+        if(self->recreate_failures == 1 || self->recreate_failures == GSR_DXGI_RECREATE_MAX_FAILURES)
+            gsr_log(GSR_LOG_LEVEL_WARNING, "gsr_capture_dxgi_tick: DuplicateOutput failed (0x%08lx), retrying (attempt %d/%d)", (unsigned long)hr, self->recreate_failures, GSR_DXGI_RECREATE_MAX_FAILURES);
+
+        if(self->recreate_failures >= GSR_DXGI_RECREATE_MAX_FAILURES) {
+            gsr_log(GSR_LOG_LEVEL_ERROR, "gsr_capture_dxgi_tick: could not recreate desktop duplication after %d attempts, stopping capture", self->recreate_failures);
+            self->should_stop = true;
+            self->stop_is_error = true;
+        }
+        return false;
+    }
+
+    self->duplication = duplication;
+    self->recreate_failures = 0;
+    self->next_recreate_ms = 0;
+    gsr_log(GSR_LOG_LEVEL_INFO, "gsr_capture_dxgi_tick: desktop duplication recreated, capture resumed");
+    return true;
 }
 
 /* Finds the IDXGIOutput whose HMONITOR matches the target. Returns an
@@ -297,6 +339,15 @@ static void dxgi_tick(gsr_capture *cap) {
         }
     }
 
+    /* No live duplication: either ACCESS_LOST tore it down or a re-create
+       has not succeeded yet. Retry on a delay and produce no frame
+       meanwhile (the recorder keeps its cadence). */
+    if(!self->duplication) {
+        if(GetTickCount64() >= self->next_recreate_ms)
+            dxgi_try_recreate_duplication(self);
+        return;
+    }
+
     /* Release the previous frame before the next acquire (the DD contract:
        ReleaseFrame must be called before the next AcquireNextFrame). */
     dxgi_release_frame(self);
@@ -309,20 +360,17 @@ static void dxgi_tick(gsr_capture *cap) {
     if(hr == DXGI_ERROR_WAIT_TIMEOUT)
         return; /* desktop unchanged — no new frame */
 
-    if(hr == DXGI_ERROR_ACCESS_LOST) {
-        /* Desktop changed (resolution, session, secure desktop, ...). DD
-           frames come from the desktop image, so this is a soft re-acquire
-           — recreate the duplication and continue (not an error). */
-        gsr_log(GSR_LOG_LEVEL_INFO, "gsr_capture_dxgi_tick: desktop access lost, recreating duplication");
+    if(hr == DXGI_ERROR_ACCESS_LOST || hr == DXGI_ERROR_INVALID_CALL) {
+        /* The desktop switched out from under us (resolution/session
+           change, secure desktop, a fullscreen exclusive app, or another
+           duplication client taking the output). Drop the duplication and
+           let the retry path above re-create it — this is a soft re-acquire,
+           not a reason to end the recording. DXGI refuses an immediate
+           re-create while the desktop is transitioning, so wait one retry
+           interval before the first attempt. */
+        gsr_log(GSR_LOG_LEVEL_INFO, "gsr_capture_dxgi_tick: desktop access lost (0x%08lx), recreating duplication", (unsigned long)hr);
         dxgi_release_duplication(self); /* keeps |output1| for re-create */
-        if(self->output1 && self->device) {
-            HRESULT hr2 = self->output1->lpVtbl->DuplicateOutput(self->output1, (IUnknown*)self->device, &self->duplication);
-            if(FAILED(hr2)) {
-                gsr_log(GSR_LOG_LEVEL_ERROR, "gsr_capture_dxgi_tick: re-DuplicateOutput failed (0x%08lx)", (unsigned long)hr2);
-                self->should_stop = true;
-                self->stop_is_error = true;
-            }
-        }
+        self->next_recreate_ms = GetTickCount64() + GSR_DXGI_RECREATE_RETRY_MS;
         return;
     }
 
