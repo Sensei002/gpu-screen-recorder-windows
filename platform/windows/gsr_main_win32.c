@@ -56,11 +56,51 @@
 static atomic_int running = 1;
 static gsr_recorder *recorder = NULL;
 
+#ifdef _WIN32
+/* How long a stop request may take before the process force-exits. */
+#define GSR_SHUTDOWN_WATCHDOG_MS (30 * 1000)
+static LONG shutdown_watchdog_armed = 0;
+
+/* Last-resort guard for a wedged shutdown.
+ *
+ * The recorder's stop path joins the audio and encode threads; if one of
+ * them never returns, the process stays alive forever while the recording
+ * has already stopped. That is not just a leak: the process keeps the -ipc
+ * named pipe bound, so every later recording started with the same pipe
+ * name dies immediately with "another program is already listening", which
+ * from the UI looks like "Record keeps stopping and nothing records".
+ *
+ * Force-exiting releases the pipe. The recording may be left truncated, but
+ * a stuck engine must never brick the next one. */
+static DWORD WINAPI shutdown_watchdog_thread(LPVOID userdata) {
+    (void)userdata;
+    Sleep(GSR_SHUTDOWN_WATCHDOG_MS);
+    gsr_log(GSR_LOG_LEVEL_ERROR, "the recorder did not stop within %d seconds, forcing exit", GSR_SHUTDOWN_WATCHDOG_MS / 1000);
+    fflush(stderr);
+    TerminateProcess(GetCurrentProcess(), 1);
+    return 0;
+}
+
+static void arm_shutdown_watchdog(void) {
+    if(InterlockedCompareExchange(&shutdown_watchdog_armed, 1, 0) != 0)
+        return;
+
+    const HANDLE thread = CreateThread(NULL, 0, shutdown_watchdog_thread, NULL, 0, NULL);
+    if(thread)
+        CloseHandle(thread);
+    else
+        InterlockedExchange(&shutdown_watchdog_armed, 0);
+}
+#endif
+
 static void stop_recorder(int signal_number) {
     (void)signal_number;
     atomic_store(&running, 0);
     if(recorder)
         gsr_recorder_stop(recorder);
+#ifdef _WIN32
+    arm_shutdown_watchdog();
+#endif
 }
 
 #ifdef _WIN32

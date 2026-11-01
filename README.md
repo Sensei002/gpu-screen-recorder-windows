@@ -8,10 +8,11 @@ platform port that preserves the upstream architecture, UI, UX, behavior, CLI
 and project identity, and replaces only the Linux-specific platform layer
 with native Windows implementations.
 
-> **Status: Phase 1 (upstream analysis) complete.** See
-> [docs/implementation-roadmap.md](docs/implementation-roadmap.md) for the
-> phase plan. Nothing is built locally — all compilation, testing, packaging
-> and releasing happens in GitHub Actions (see
+> **Status: Phases 1–14 complete (engine, UI, IPC, audio, replay, installer,
+> CI/CD). Phases 15–17 — performance, parity testing, release packaging —
+> are pending.** See [docs/implementation-roadmap.md](docs/implementation-roadmap.md)
+> for the phase plan. Nothing is built locally — all compilation, testing,
+> packaging and releasing happens in GitHub Actions (see
 > [.github/workflows/windows-release.yml](.github/workflows/windows-release.yml)).
 
 ## What this is
@@ -22,8 +23,14 @@ with native Windows implementations.
 * **UI** (`gsr-ui.exe`, `gsr-ui-cli.exe`) — the ShadowPlay-style fullscreen
   overlay UI. Port of upstream `gpu-screen-recorder-ui` 1.13.5 (r720/edfc70d),
   including its custom OpenGL widget stack (mgl/mglpp).
-* **Notification** (`gsr-notification.exe`) — the ShadowPlay-style
-  notification overlay (upstream `gsr-notify`, renamed for Windows).
+* **Notification** (`gsr-notification.exe`) — **not implemented yet.** The
+  upstream `gsr-notify` overlay has no Windows port in this tree: only
+  `platform/include/notifications.h` exists (a declaration with no
+  implementation), and the installer ships three executables
+  (`gpu-screen-recorder`, `gsr-cli`, `gsr-ui`). The UI still spawns
+  `gsr-notify`, so every toast currently fails silently. Engine output is
+  logged to `%APPDATA%\gpu-screen-recorder\engine.log` as an interim
+  diagnostic channel. See `docs/windows-port-parity.md`.
 * The upstream GTK frontend (`gpu-screen-recorder-gtk`) is deprecated upstream
   and superseded by the UI; it is not ported (see
   [docs/windows-port-parity.md](docs/windows-port-parity.md)).

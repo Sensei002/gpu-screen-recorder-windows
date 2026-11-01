@@ -2634,6 +2634,28 @@ namespace gsr {
     }
 #endif
 
+    /* Appends one line to %APPDATA%\gpu-screen-recorder\engine.log.
+       The engine writes its diagnostics to stderr, which spawn_program()
+       folds into the stdout pipe; without persisting them here a GUI build
+       with no console loses every clue about why a recording failed. */
+    static void append_engine_log(const char *line) {
+        static FILE *engine_log_file = nullptr;
+        static bool engine_log_opened = false;
+        if(!engine_log_opened) {
+            engine_log_opened = true;
+            std::string log_dir = get_config_dir();
+            create_directory_recursive(log_dir.data());
+            const std::string log_path = log_dir + "/engine.log";
+            engine_log_file = fopen(log_path.c_str(), "a");
+            if(!engine_log_file)
+                fprintf(stderr, "gsr-ui warning: could not open the engine log at %s\n", log_path.c_str());
+        }
+        if(engine_log_file) {
+            fprintf(engine_log_file, "%s\n", line);
+            fflush(engine_log_file);
+        }
+    }
+
     void Overlay::process_gsr_output_line(char *line) {
         int line_len = strlen(line);
         if(line_len > 0 && line[line_len - 1] == '\n') {
@@ -2646,6 +2668,8 @@ namespace gsr {
         }
         if(line_len == 0)
             return;
+
+        append_engine_log(line);
 
         const std::string_view line_view{line, (size_t)line_len};
         if(starts_with(line_view, "gsr error: ")) {
@@ -2682,6 +2706,11 @@ namespace gsr {
 
     void Overlay::on_gsr_process_error(int exit_code, NotificationType notification_type) {
         fprintf(stderr, "Warning: gpu-screen-recorder (%d) exited with exit status %d\n", (int)gpu_screen_recorder_process, exit_code);
+        {
+            char exit_line[128];
+            snprintf(exit_line, sizeof(exit_line), "gsr-ui: gpu-screen-recorder exited with status %d", exit_code);
+            append_engine_log(exit_line);
+        }
         if(exit_code == 50) {
             show_notification(TR("Desktop portal capture failed. Either you canceled the desktop portal or your Wayland compositor doesn't support desktop portal capture or it's incorrectly setup on your system."), notification_error_timeout_seconds, mgl::Color(255, 0, 0), mgl::Color(255, 0, 0), notification_type, nullptr, NotificationLevel::ERROR);
         } else if(exit_code == 51) {
@@ -3266,8 +3295,17 @@ namespace gsr {
 
         fprintf(stderr, "gsr-ui warning: gpu-screen-recorder (%d) did not exit after %d ms, force-terminating it\n", (int)process, timeout_ms);
         kill(process, SIGTERM);
-        while(waitpid(process, &status, WNOHANG) == 0)
+        /* Bounded: waitpid() also reports "still running" when the handle is
+           no longer valid (WaitForSingleObject fails), so an unbounded loop
+           here could hang the UI thread forever. Give the terminated process
+           a few seconds and then stop waiting regardless. */
+        const int force_timeout_ms = 5000;
+        for(int i = 0; i < force_timeout_ms / step_ms; ++i) {
+            if(waitpid(process, &status, WNOHANG) != 0)
+                return -1;
             usleep(step_ms * 1000);
+        }
+        fprintf(stderr, "gsr-ui warning: gpu-screen-recorder (%d) still did not exit after being force-terminated, giving up\n", (int)process);
         return -1;
     }
 #endif
@@ -3392,8 +3430,23 @@ namespace gsr {
     static std::string get_framerate_mode_validate(const RecordOptions &record_options, const GsrInfo &gsr_info) {
         (void)gsr_info;
         std::string framerate_mode = record_options.framerate_mode;
-        if(framerate_mode == "auto")
+        if(framerate_mode == "auto") {
+#ifdef _WIN32
+            /* "auto" means VFR upstream, where the X11/Wayland capture is
+               damage-driven so the frame timestamps follow the content.
+               The Windows backends (WGC and DXGI Desktop Duplication) are
+               polled from the recorder loop instead: the capture delivers a
+               frame only if one happens to be pending when the loop ticks,
+               so VFR timestamps inherit that jitter and frames get dropped.
+               Measured on this port (1080p60, DXGI, GTX 950):
+                 VFR -> 54.5 fps with 300+ distinct frame intervals
+                 CFR -> 60.00 fps with every frame at 16.67 ms
+               so "auto" maps to CFR on Windows to keep playback smooth. */
+            framerate_mode = "cfr";
+#else
             framerate_mode = "vfr";
+#endif
+        }
         return framerate_mode;
     }
 

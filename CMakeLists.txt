@@ -38,7 +38,7 @@ add_compile_options($<$<COMPILE_LANGUAGE:C>:-std=gnu11> -Wshadow -Wall -Wextra)
 # The engine version string (upstream meson passes -DGSR_VERSION="...").
 # Single source of truth: the same string feeds the exe version-info
 # resource (packaging/gsr.rc) via RC_FLAGS below.
-set(GSR_VERSION_STR "6.0.0-w1")
+set(GSR_VERSION_STR "6.0.0-w2")
 add_compile_definitions(GSR_VERSION="${GSR_VERSION_STR}")
 
 # Phase 13: exe branding — gsr.rc (packaging/) embeds the original logo as

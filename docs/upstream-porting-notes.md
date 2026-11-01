@@ -1381,3 +1381,96 @@ Fix (platform/windows/gsr_nvenc_win32.c):
 Lesson: on D3D11, "one frame, refill it" is invalid for NVENC — you need
 one pooled frame in flight per async encode, and on Windows the pool must
 be the lazy single-texture kind, not a texture array.
+
+## 3y. Real-hardware field report: Record fails, replay save freezes, output judders
+
+Diagnosed against an installed 6.0.0-w1 artifact on Windows 11 IoT
+Enterprise LTSC 26100, GTX 950 (Maxwell, NVENC gen 1), driver 32.0.15.8228.
+Three symptoms were reported; two were root-caused with measurements, one
+is bounded rather than explained.
+
+### 3y.1 WGC is unavailable on LTSC — the DXGI fallback is the shipping path
+
+`gsr_capture_wgc` logs:
+
+    gsr_capture_wgc: cannot load Windows.Graphics.DirectX.Direct3D11.dll
+    (GetLastError=0x00000002; System32 file ABSENT)
+
+`Windows.Graphics.Capture.dll` and
+`Windows.Graphics.DirectX.Direct3D11.dll` are genuinely absent on
+Windows 11 **IoT Enterprise LTSC** (WinRT/UWP components are stripped).
+The recorder then falls back to DXGI Desktop Duplication, so every
+recording on such a machine runs on the *fallback* backend. The fallback
+must therefore be treated as a first-class path, not a safety net.
+
+### 3y.2 Judder: VFR on a polled capture produces 54.5 fps with jitter
+
+`get_framerate_mode_validate()` mapped the UI's `framerate_mode: auto` to
+`vfr` (upstream's choice, correct on X11/Wayland where capture is
+damage-driven). The Windows backends are polled from the recorder loop
+instead — `AcquireNextFrame(duplication, 0, ...)` is a **0 ms** poll, so a
+frame that arrives mid-tick is simply missed and caught on the next tick.
+
+Measured with the port's own MP4s (`stts` parsed directly), 1080p60:
+
+| mode | frames | duration | avg fps | distinct frame intervals |
+|---|---|---|---|---|
+| `-fm vfr` | 464 | 8.56 s | 54.5 | 364 |
+| `-fm vfr` | 1729 | 31.73 s | 54.5 | 904 |
+| `-fm cfr` | 964 | 16.07 s | 60.00 | **1** (16.67 ms) |
+| `-fm cfr` (replay save) | 3288 | 54.80 s | 60.00 | **1** (16.67 ms) |
+
+VFR drops ~9% of frames and stamps the rest with the capture jitter, which
+is exactly the reported "not smooth 60 FPS". CFR duplicates the last frame
+and keeps a perfect cadence, and A/V stays in sync (video and audio track
+durations agree to within 20 ms in every file).
+
+Fix (ui/src/Overlay.cpp): `auto` now maps to `cfr` on Windows. The
+underlying poll-vs-block mismatch in the DXGI backend is still there and
+is the next thing to address — a small `AcquireNextFrame` timeout would let
+the capture wait for the frame instead of missing it.
+
+### 3y.3 "Record keeps stopping and nothing records": a wedged engine owns the pipe
+
+The engine binds `\\.\pipe\gsr-record` for `-ipc`. `gsr_ipc_init` refuses
+to start when the pipe is already in use:
+
+    gsr error: gsr_ipc_init: another program is already listening on "\\.\pipe\gsr-record"
+    (exit code 1)
+
+Reproduced: after a stop that never completed, the first engine is still
+alive holding the pipe, so **every** subsequent Record dies instantly with
+exit 1. From the UI that is "it keeps stopping and nothing records".
+
+Two things made it silent:
+
+* `process_gsr_output_line()` matches `gsr error: ` but the
+  `show_notification()` call for it is **commented out**, so the reason is
+  discarded.
+* `gsr-notification.exe` has no source anywhere in the tree (only
+  `platform/include/notifications.h`, a declaration with no
+  implementation), while `Overlay.cpp` still spawns `gsr-notify`. Every
+  toast — including this error — fails at `CreateProcess`.
+
+The stop itself hangs intermittently: the recorder stops writing frames but
+`gsr_recorder_run()` never returns, so `gsr_ipc_complete_request(STOP)`
+never fires and the deferred reply never reaches the client. Not
+reproducible on demand (3 clean stops, 1 hang with identical arguments);
+`-a default_output` is present in every case but a no-audio control also
+passed, so the audio join is a suspect, not a proven cause.
+
+Fixes:
+* `platform/windows/gsr_main_win32.c`: a shutdown watchdog armed by
+  `stop_recorder()` force-exits 30 s after any stop request. A stuck
+  engine can no longer keep the pipe bound and brick the next recording.
+* `ui/src/Overlay.cpp`: `wait_gsr_process_exit()`'s post-`TerminateProcess`
+  wait was unbounded — `waitpid()` also returns "still running" for an
+  invalid handle, so it could spin forever on the UI thread. Now bounded.
+* `ui/src/Overlay.cpp`: engine output is appended to
+  `%APPDATA%\gpu-screen-recorder\engine.log`, plus a line with the engine's
+  exit status. Previously a GUI build with no console lost every
+  diagnostic.
+
+Lesson: a deferred IPC reply is a liveness dependency. If the operation it
+waits on can wedge, the client hangs and the resource (here: the pipe
+name) stays locked. Bound the operation, or make the reply non-deferred.

@@ -21,7 +21,7 @@ to a final status. `PLANNED` rows below reflect the architecture in
 | CLI `-w` capture source syntax (`screen`, monitor name, `window`, `region`, `portal`, `v4l2`, `|` composition, `;x=...;y=...` options) | FULL | Monitor/`screen`/`region`/window via WGC; no `portal`; no v4l2 yet | PARTIAL → TODO | Webcam scope decided in Phase 5/13 |
 | `-c` container (mp4/mkv/flv/webm + FFmpeg formats) | FULL | FULL | PLANNED | FFmpeg muxing |
 | `-s` resolution limit | FULL | FULL | PLANNED | GPU scaling |
-| `-f` fps + `-fm cfr/vfr` | FULL | FULL | PLANNED | VFR via recording clock |
+| `-f` fps + `-fm cfr/vfr` | FULL | FULL | FULL | `auto` maps to **cfr** on Windows (VFR on a polled capture drops ~9% of frames and jitters: 54.5 fps with 300+ distinct intervals vs 60.00 fps at a fixed 16.67 ms). Explicit `-fm vfr` is still honoured |
 | `-fm content` (damage sync) | X11/portal only | WGC-native equivalent (capture-on-change) | PARTIAL | WGC delivers frames on desktop update; map to damage model |
 | `-cursor yes/no` | FULL | FULL | PLANNED | WGC cursor API |
 | `-a` audio sources (`default_output`, `default_input`, `device:`, `app:`, `app-inverse:`, `\|`) | FULL | device/default FULL; `app:` PARTIAL | PLANNED | WASAPI sessions; feasibility Phase 8 |
@@ -135,7 +135,7 @@ to a final status. `PLANNED` rows below reflect the architecture in
 | Feature | Linux Upstream | Windows | Status | Notes |
 |---|---|---|---|---|
 | gpu-screen-recorder-gtk (tray app) | deprecated upstream | NOT ported (superseded by UI) | NOT POSSIBLE | documented; tray scope lives in UI |
-| gsr-notify → `gsr-notification.exe` | FULL | PLANNED | PARTIAL | renamed for Windows (brief §4); same `--text/--timeout/--icon...` CLI |
+| gsr-notify → `gsr-notification.exe` | FULL | **missing** — no source in tree; UI still spawns `gsr-notify` | TODO | Every toast fails at `CreateProcess`; engine output goes to `%APPDATA%\gpu-screen-recorder\engine.log` instead. Needs either a port of `gsr-notify` or in-overlay toasts |
 | gsr-global-hotkeys (setuid helper) | FULL | in-process RegisterHotKey | WINDOWS-SPECIFIC | no helper binary needed |
 | gsr-wayland-bridge / kwin / gnome helpers | Wayland-only | NOT POSSIBLE | NOT POSSIBLE | replaced by Win32 equivalents |
 | gsr-game-tracker | FULL | foreground-window based | PARTIAL | |
