@@ -1504,3 +1504,48 @@ Two fixes:
 
 Lesson: "keep in sync" is not a mechanism. If a value is duplicated in a
 file the build does not parse, add a check that parses it.
+
+### 3y.5 Second field report: capture died for good, and stop blocked the UI
+
+The engine log added in 3y.3 answered both remaining symptoms within one
+run of the installed 6.0.0-w2 build.
+
+**Capture never recovered from a transient ACCESS_LOST.**
+
+    gsr_capture_dxgi_tick: desktop access lost, recreating duplication
+    gsr_capture_dxgi_tick: re-DuplicateOutput failed (0x80070005)   E_ACCESSDENIED
+    gsr_capture_dxgi_tick: AcquireNextFrame failed (0x887a0001)     DXGI_E_INVALID_CALL
+
+The old handler re-created the duplication on the very next tick and, if
+that single attempt failed, set `should_stop` + `stop_is_error`. DXGI
+refuses an immediate `DuplicateOutput` while the desktop is transitioning
+(mode change, secure desktop, fullscreen exclusive switch, another
+duplication client), so one transient failure ended capture permanently.
+No frames means an empty replay buffer, which is why "save replay" produced
+nothing.
+
+Now the duplication is dropped on `DXGI_ERROR_ACCESS_LOST` **or**
+`DXGI_ERROR_INVALID_CALL` and re-created on a 500 ms retry, up to 20
+attempts (~10 s), before failing. This is safe because the recorder ignores
+`gsr_capture_capture()`'s return value: `dxgi_capture()` returns -1 while
+no texture exists, the colour conversion keeps the last frame, and the
+encoder repeats it — a frozen frame during the outage instead of a dead
+recording.
+
+**Stopping froze the overlay for up to 15 s.**
+
+All three stop paths (record, replay, stream) called
+`wait_gsr_process_exit(..., 15000)` *on the render thread*. The overlay
+stopped drawing and stopped accepting input until the engine exited, plus
+up to 5 s more for the force-terminate fallback. That call was also
+redundant: `update_gsr_process_status()` already finalizes when the engine
+exits on its own — drains stdout, calls `on_stop_recording()` with the
+printed path, resets the UI — and `draw()` runs it unconditionally, even
+while the overlay is hidden.
+
+The Windows branches now send the stop command and return; the update loop
+finishes the job. POSIX keeps its blocking `waitpid`.
+
+Lesson: a per-frame update loop that already owns the exit path should be
+the *only* owner of it. A second, blocking copy of the same logic on the
+render thread buys nothing and costs a frozen UI.

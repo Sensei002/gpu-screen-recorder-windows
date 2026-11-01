@@ -13,12 +13,12 @@
 #
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File packaging/build-package.ps1 `
-#       -BinDir <artifact dir with exes + dlls> -OutDir dist -Version 6.0.0-w2
+#       -BinDir <artifact dir with exes + dlls> -OutDir dist -Version 6.0.0-w3
 # =============================================================================
 param(
     [Parameter(Mandatory = $true)][string]$BinDir,
     [string]$OutDir   = "dist",
-    [string]$Version  = "6.0.0-w2"
+    [string]$Version  = "6.0.0-w3"
 )
 
 $ErrorActionPreference = "Stop"
@@ -28,7 +28,7 @@ $StageDir = Join-Path $OutDir "stage"
 $ExeNames = @("gpu-screen-recorder.exe", "gsr-cli.exe", "gsr-ui.exe")
 
 # Version forms: the resource/installer numeric form needs X.Y.Z.W. A dev
-# suffix "-wN" maps to the 4th component (6.0.0-w2 -> 6.0.0.2) so the
+# suffix "-wN" maps to the 4th component (6.0.0-w3 -> 6.0.0.3) so the
 # installer advertises the same numeric version the exes embed.
 $VersionNum = ($Version -split "-")[0]
 if (($VersionNum -split "\.").Count -lt 4) {
