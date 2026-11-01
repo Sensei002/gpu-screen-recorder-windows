@@ -36,8 +36,6 @@ endif()
 add_compile_options($<$<COMPILE_LANGUAGE:C>:-std=gnu11> -Wshadow -Wall -Wextra)
 
 # The engine version string (upstream meson passes -DGSR_VERSION="...").
-# Single source of truth: the same string feeds the exe version-info
-# resource (packaging/gsr.rc) via RC_FLAGS below.
 set(GSR_VERSION_STR "6.0.0-w2")
 add_compile_definitions(GSR_VERSION="${GSR_VERSION_STR}")
 
@@ -45,6 +43,24 @@ add_compile_definitions(GSR_VERSION="${GSR_VERSION_STR}")
 # the exe icon and the version info. The -I flag lets windres find gsr.ico
 # (referenced by path in the .rc) without quoting fragility.
 set(GSR_RC_FLAGS "-I${CMAKE_SOURCE_DIR}/packaging")
+
+# gsr.rc cannot take the version from here: windres -D quoting for a string
+# value is fragile, so the .rc hardcodes both forms. That is a silent drift
+# trap — the build stays green while the exe advertises the old version, and
+# the package job then fails late on "FileVersion is 'X', expected 'Y'".
+# Catch it at configure time instead.
+file(READ "${CMAKE_SOURCE_DIR}/packaging/gsr.rc" GSR_RC_CONTENTS)
+string(REGEX MATCH "#define GSR_VERSION_STR \"([^\"]+)\"" GSR_RC_MATCH "${GSR_RC_CONTENTS}")
+if(NOT GSR_RC_MATCH)
+    message(FATAL_ERROR "packaging/gsr.rc: could not find the GSR_VERSION_STR define")
+endif()
+set(GSR_RC_VERSION_STR "${CMAKE_MATCH_1}")
+if(NOT "${GSR_RC_VERSION_STR}" STREQUAL "${GSR_VERSION_STR}")
+    message(FATAL_ERROR
+        "Version mismatch: CMakeLists.txt has GSR_VERSION_STR \"${GSR_VERSION_STR}\" "
+        "but packaging/gsr.rc has \"${GSR_RC_VERSION_STR}\". Bump GSR_VERSION_STR, "
+        "GSR_VERSION_NUM in packaging/gsr.rc, and the workflow's default version together.")
+endif()
 
 # Optional gcov coverage instrumentation (Phase 3 CI deliverable: a
 # coverage report artifact). Enabled in a separate build dir by the

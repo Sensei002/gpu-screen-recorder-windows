@@ -24,3 +24,6 @@ CMakeCache.txt
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# WorkBuddy session data (local only)
+.workbuddy-ai/

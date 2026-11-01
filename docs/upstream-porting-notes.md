@@ -1474,3 +1474,33 @@ Fixes:
 Lesson: a deferred IPC reply is a liveness dependency. If the operation it
 waits on can wedge, the client hangs and the resource (here: the pipe
 name) stays locked. Bound the operation, or make the reply non-deferred.
+
+### 3y.4 The version lives in three places, and the third one is silent
+
+Bumping the version for this release broke CI in a way worth recording. The
+build job stayed green and the artifact was produced, but the **package**
+job died in three seconds on:
+
+    gpu-screen-recorder.exe: FileVersion is '6.0.0-w1', expected '6.0.0-w2'
+
+`GSR_VERSION_STR` had been bumped in `CMakeLists.txt` and in the workflow's
+three defaults, but `packaging/gsr.rc` hardcodes its own copy — both the
+string form (`GSR_VERSION_STR`) and the numeric form (`GSR_VERSION_NUM`).
+`windres` cannot reliably take a quoted string via `-D`, which is why the
+`.rc` keeps a literal copy; the comment there says "keep in sync", and that
+is exactly the kind of instruction that gets missed.
+
+Two fixes:
+
+* `CMakeLists.txt` now reads `packaging/gsr.rc` at configure time and fails
+  with an explicit message if the two `GSR_VERSION_STR` values disagree.
+  The trap is now caught in seconds at Configure instead of minutes later in
+  the package job.
+* `build-package.ps1` derived the installer's numeric version as
+  `X.Y.Z` + `.1` regardless of the suffix, so a `-w2` build would have
+  shipped an installer advertising `6.0.0.1` while the exes embedded
+  `6.0.0.2`. It now maps the `-wN` suffix to the 4th component
+  (`6.0.0-w2` -> `6.0.0.2`), matching `GSR_VERSION_NUM`.
+
+Lesson: "keep in sync" is not a mechanism. If a value is duplicated in a
+file the build does not parse, add a check that parses it.

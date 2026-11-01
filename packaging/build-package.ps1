@@ -13,12 +13,12 @@
 #
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File packaging/build-package.ps1 `
-#       -BinDir <artifact dir with exes + dlls> -OutDir dist -Version 6.0.0-w1
+#       -BinDir <artifact dir with exes + dlls> -OutDir dist -Version 6.0.0-w2
 # =============================================================================
 param(
     [Parameter(Mandatory = $true)][string]$BinDir,
     [string]$OutDir   = "dist",
-    [string]$Version  = "6.0.0-w1"
+    [string]$Version  = "6.0.0-w2"
 )
 
 $ErrorActionPreference = "Stop"
@@ -27,9 +27,15 @@ $PackagingDir = $PSScriptRoot
 $StageDir = Join-Path $OutDir "stage"
 $ExeNames = @("gpu-screen-recorder.exe", "gsr-cli.exe", "gsr-ui.exe")
 
-# Version forms: the resource/installer numeric form needs X.Y.Z.W.
+# Version forms: the resource/installer numeric form needs X.Y.Z.W. A dev
+# suffix "-wN" maps to the 4th component (6.0.0-w2 -> 6.0.0.2) so the
+# installer advertises the same numeric version the exes embed.
 $VersionNum = ($Version -split "-")[0]
-if (($VersionNum -split "\.").Count -lt 4) { $VersionNum = "$VersionNum.1" }
+if (($VersionNum -split "\.").Count -lt 4) {
+    $build = 1
+    if ($Version -match '-w(\d+)$') { $build = [int]$Matches[1] }
+    $VersionNum = "$VersionNum.$build"
+}
 
 Write-Host "== Phase 13 packaging =="
 Write-Host "   binaries:  $BinDir"

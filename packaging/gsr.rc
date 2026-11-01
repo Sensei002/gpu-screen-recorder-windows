@@ -13,8 +13,8 @@
  * the single place to bump the version stays explicit.
  */
 
-#define GSR_VERSION_STR "6.0.0-w1"
-#define GSR_VERSION_NUM 6,0,0,1
+#define GSR_VERSION_STR "6.0.0-w2"
+#define GSR_VERSION_NUM 6,0,0,2
 
 /* The resource must be named 1 (numeric) — the exact name that
    GetFileVersionInfoSize/VerQueryValue look up (VS_VERSION_INFO = 1 in
